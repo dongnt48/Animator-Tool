@@ -1,0 +1,36 @@
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local configuration and logs
+.env
+.env.*
+!.env.example
+*.log
+
+# Generated media and local video history
+/downloads/
+/outputs/
+/static/thumbnails/
+/data/videos.json
+/data/social/
+/data/temp_*/
+playwright/.auth/
+/test-results/
+/.superpowers/
+
+# JavaScript dependencies
+node_modules/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+/.social-test-run.txt
+/.*-test.txt
