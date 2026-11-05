@@ -1,0 +1,47 @@
+  <!-- VIDEO PLAYER MODAL -->
+  <div id="videoModal"
+    class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="modalDialog"
+      class="library-player-dialog" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <!-- Modal Header -->
+      <div class="library-player-header">
+        <div class="library-player-heading">
+          <div id="modalIcon"
+            class="w-10 h-10 rounded-xl bg-cozy-terracotta text-white flex items-center justify-center text-lg">
+            🎬
+          </div>
+          <div class="library-player-copy">
+            <h3 id="modalTitle" class="font-bold text-base sm:text-lg text-cozy-dark leading-snug break-words">Xem Video</h3>
+            <span id="modalBadge" class="text-xs px-2.5 py-0.5 rounded-full font-bold bg-cozy-sage/20 text-cozy-slate">
+              Hoạt Hình Cozy
+            </span>
+          </div>
+        </div>
+        <button onclick="closeModal()" aria-label="Đóng video"
+          class="w-10 h-10 rounded-full hover:bg-cozy-sand/40 text-cozy-slate flex items-center justify-center text-xl transition">
+          ✕
+        </button>
+      </div>
+
+      <!-- Modal Body (Video Player) -->
+      <div class="library-player-body">
+        <video id="modalVideoPlayer" controls autoplay>
+          <source src="" type="video/mp4">
+          Trình duyệt của bạn không hỗ trợ thẻ video.
+        </video>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="library-player-footer">
+        <a id="modalDownloadBtn" href="#" download
+          class="px-5 py-2.5 rounded-xl bg-cozy-terracotta text-white font-bold text-xs sm:text-sm hover:bg-[#c9674c] transition flex items-center gap-2">
+          <i class="fa-solid fa-download"></i>
+          <span>Tải File MP4 Về Máy</span>
+        </a>
+        <button onclick="closeModal()"
+          class="px-5 py-2.5 rounded-xl bg-cozy-sand/50 text-cozy-dark font-bold text-xs sm:text-sm hover:bg-cozy-sand transition">
+          Đóng
+        </button>
+      </div>
+    </div>
+  </div>

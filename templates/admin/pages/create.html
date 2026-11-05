@@ -1,0 +1,18 @@
+{% extends 'admin/layout.html' %}
+{% block head_extra %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='admin/css/library-utilities.css') }}">
+{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{{ url_for('static', filename='admin/css/library.css') }}">{% endblock %}
+{% block content %}
+<div class="library-page">
+  <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col gap-3 pointer-events-none"></div>
+  {% include 'admin/partials/video-create-controls.html' %}
+  {% include 'admin/partials/video-stats.html' %}
+  <section class="panel">
+    <div class="section-heading"><h2>Tiến trình xử lý</h2><a href="/">Mở thư viện →</a></div>
+    <div id="creationActivity" aria-live="polite"><p class="hint">Đang tải tiến trình…</p></div>
+  </section>
+</div>
+<script src="{{ url_for('static', filename='admin/js/library.js') }}" defer></script>
+{% endblock %}

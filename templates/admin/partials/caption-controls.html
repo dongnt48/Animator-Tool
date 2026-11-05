@@ -1,0 +1,37 @@
+<section id="captionTools" class="panel" aria-label="Viết lại caption">
+  <div class="caption-toolbar">
+    <h2>Viết lại caption</h2>
+    <select id="captionRewriteMode" aria-label="Phạm vi viết lại">
+      <option value="unwritten" selected>Chỉ chưa viết lại</option>
+      <option value="all">Viết lại tất cả đã chọn</option>
+    </select>
+    <label class="confirmation"><input type="checkbox" id="captionSelectAll"><span>Chọn tất cả</span></label>
+    <span id="captionSelectedCount" class="badge">0 đã chọn</span>
+    <span id="captionEligibleCount" class="hint">0 sẽ viết</span>
+    <button id="rewriteCaptions" class="primary" type="button">Viết lại caption</button>
+    <span id="captionApiState" class="badge">Đang kiểm tra…</span>
+  </div>
+  <div class="caption-options-row">
+    <label class="confirmation"><input type="checkbox" id="captionUseTranscript" checked><span>Dùng lời thoại</span></label>
+    <details><summary>Tùy chỉnh</summary>
+    <div class="caption-provider-settings">
+      <h3>Cấu hình AI</h3>
+      <div class="caption-provider-grid">
+        <div><label for="captionModel">Model</label><input id="captionModel" type="text" maxlength="200" placeholder="gemini-3.8-flash" spellcheck="false" disabled></div>
+        <div><label for="captionApiKey">API key</label><input id="captionApiKey" type="password" maxlength="512" autocomplete="new-password" spellcheck="false" placeholder="Nhập API key" disabled></div>
+      </div>
+      <div class="caption-hashtag-actions"><button id="saveCaptionProvider" class="secondary" type="button" disabled>Lưu cấu hình AI</button><span id="captionProviderState" class="hint" role="status">Đang tải…</span></div>
+      <p class="hint">Dùng API của api.xah.io. Để trống API key để giữ khóa hiện tại. Cấu hình được lưu trên máy; thay đổi được lưu khi bấm nút lưu hoặc viết lại caption.</p>
+    </div>
+    <label for="captionInstruction">Yêu cầu thêm</label>
+    <textarea id="captionInstruction" rows="2" maxlength="2000" placeholder="Ví dụ: Viết ngắn gọn, mở đầu cuốn hút."></textarea>
+    <label for="captionHashtags">Hashtag mặc định</label>
+    <textarea id="captionHashtags" rows="2" maxlength="1000" placeholder="#dongluc #songtichcuc" disabled></textarea>
+    <div class="caption-hashtag-actions"><button type="button" id="saveCaptionHashtags" class="secondary" disabled>Lưu hashtag</button><span id="captionHashtagState" class="hint" role="status">Đang tải…</span></div>
+    <p class="hint">Chỉ thêm hashtag bạn nhập vào cuối caption mới. Để trống để không thêm. Tách bằng khoảng trắng hoặc dấu phẩy; thay đổi được lưu khi bấm Lưu hashtag hoặc viết lại caption.</p>
+    <p class="hint">Áp dụng trên video đã chọn. Caption AI được lưu thẳng vào video. AI không tạo hashtag, nhận tối đa 300 ký tự thoại/video, xử lý nhóm tối đa 100 video. Mở Chi tiết để chỉnh sửa thủ công.</p>
+    <p class="hint">Chưa có thoại sẽ nhận diện qua Google; XAH chỉ nhận văn bản. Bản thoại đầy đủ vẫn được giữ.</p>
+    </details>
+  </div>
+  {% if active_page == 'library' %}<div id="captionBatchFeedback" role="status" aria-live="polite"></div>{% endif %}
+</section>

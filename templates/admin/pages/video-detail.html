@@ -1,0 +1,27 @@
+{% extends 'admin/layout.html' %}
+{% block content %}
+<a href="/" class="secondary">← Về thư viện</a>
+<div id="videoDetail" data-video-id="{{ video_id }}" hidden>
+  <section class="panel">
+    <div class="section-heading"><h2 id="detailTitle"></h2><span id="detailCaptionState" class="badge"></span></div>
+    <dl id="detailMetadata" class="record-metadata"></dl>
+    <p id="detailRenderLog" class="hint"></p>
+    <div id="detailMedia" class="record-media"></div>
+  </section>
+  <div class="record-columns">
+    <section class="panel">
+      <h2>Caption</h2>
+      <details><summary>Caption đang dùng</summary><p id="detailCurrentCaption" class="record-text"></p></details>
+      <p id="detailDraftNote" class="hint"></p>
+      <form id="detailCaptionForm">
+        <label for="detailCaption">Chỉnh sửa caption</label>
+        <textarea id="detailCaption" rows="7" maxlength="10000" required></textarea>
+        <button id="detailSaveCaption" class="primary" type="submit">Lưu caption</button>
+      </form>
+      <details id="detailSentDialogue" hidden><summary>Lời thoại đã gửi AI</summary><p id="detailSentText" class="record-text"></p></details>
+      <details><summary>Lời thoại đầy đủ</summary><p id="detailTranscript" class="record-text"></p></details>
+    </section>
+    <section class="panel"><h2>Trạng thái đăng</h2><div id="detailPublication"></div></section>
+  </div>
+</div>
+{% endblock %}

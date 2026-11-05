@@ -1,0 +1,10 @@
+{% extends 'admin/layout.html' %}
+{% block content %}
+    <section class="admin-metrics" aria-label="Số liệu tổng quan">
+      <article class="metric"><span class="metric-label">Video sẵn sàng</span><strong id="metricReady">—</strong><span class="metric-foot">Chưa dùng trong lịch đăng</span></article>
+      <article class="metric"><span class="metric-label">Tài khoản kết nối</span><strong id="metricAccounts">—</strong><a href="/publishing/accounts" class="metric-foot">Quản lý kết nối →</a></article>
+      <article class="metric"><span class="metric-label">Đã đăng thành công</span><strong id="metricPublished">—</strong><span class="metric-foot">Theo nền tảng · 100 lượt gần nhất</span></article>
+      <article class="metric"><span class="metric-label">Cần xử lý</span><strong id="metricAttention">—</strong><a href="/publishing/results" class="metric-foot">Kiểm tra kết quả →</a></article>
+    </section>
+<section class="panel overview-links"><h2>Quản lý xuất bản</h2><div class="overview-actions"><a href="/publishing/schedule">Lịch tự động →</a><a href="/publishing/accounts">Tài khoản →</a><a href="/publishing/results">Kết quả đăng →</a></div></section>
+{% endblock %}

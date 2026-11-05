@@ -1,0 +1,15 @@
+{% macro nav_icon(path) -%}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ path }}"/></svg>{%- endmacro %}
+<aside class="admin-sidebar" aria-label="Thanh bên quản trị">
+  <a href="/publishing" class="admin-brand"><span class="admin-logo">A</span><span>Animator<span class="brand-subtitle">QUẢN TRỊ NỘI DUNG</span></span></a>
+  <p class="nav-caption">KHÔNG GIAN LÀM VIỆC</p>
+  <nav class="admin-nav" aria-label="Điều hướng quản trị">
+    <a href="/publishing" {% if active_page == 'overview' %}aria-current="page"{% endif %}>{{ nav_icon('M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z') }}<span>Tổng quan</span></a>
+    <a href="/publishing/schedule" {% if active_page == 'schedule' %}aria-current="page"{% endif %}>{{ nav_icon('M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2 M16 3v4 M8 3v4 M3 11h18 M8 15h2 M14 15h2') }}<span>Lịch tự động</span></a>
+    <a href="/publishing/accounts" {% if active_page == 'accounts' %}aria-current="page"{% endif %}>{{ nav_icon('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M13 7a4 4 0 1 1-8 0a4 4 0 0 1 8 0 M17 11a4 4 0 0 0 0-8 M22 21v-2a4 4 0 0 0-3-3.87') }}<span>Tài khoản</span><span id="navAccountsCount" class="nav-count">0/5</span></a>
+    <a href="/publishing/results" {% if active_page == 'results' %}aria-current="page"{% endif %}>{{ nav_icon('M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-3 M8 2h8v4H8z M8 11h8 M8 16h5') }}<span>Kết quả đăng</span></a>
+    <a href="/publishing/new" {% if active_page == 'new' %}aria-current="page"{% endif %}>{{ nav_icon('M12 5v14 M5 12h14') }}<span>Đặt lịch riêng</span></a>
+    <a href="/create" {% if active_page == 'create' %}aria-current="page"{% endif %}>{{ nav_icon('M12 5v14 M5 12h14') }}<span>Tạo video</span></a>
+    <a href="/" {% if active_page in ['library','video-detail'] %}aria-current="page"{% endif %}>{{ nav_icon('M4 4h16v16H4z M4 15l5-5 4 4 3-3 4 4 M8 7h.01') }}<span>Thư viện</span></a>
+  </nav>
+  <div class="sidebar-bottom"><span class="device-dot"></span><div>Studio trên máy tính<span>Giữ máy bật khi đến giờ đăng</span></div></div>
+</aside>

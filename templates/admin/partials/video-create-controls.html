@@ -1,0 +1,132 @@
+    <!-- INPUT & CONTROL BAR -->
+    <section class="glass-card rounded-3xl p-6 sm:p-7 shadow-xl border border-cozy-sand/80 space-y-4">
+      <!-- ROW 1: SPACIOUS URL INPUT & PRIMARY ACTION BUTTONS -->
+      <div class="flex flex-col lg:flex-row gap-3 items-stretch">
+        <!-- Input URL (Spacious & Prominent) -->
+        <div class="relative flex-grow min-w-0">
+          <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-cozy-terracotta text-lg">
+            <i class="fa-brands fa-tiktok"></i>
+          </div>
+          <input
+            type="text"
+            id="inputUrl"
+            placeholder="Dán link video TikTok (vd: https://www.tiktok.com/@60daykyluat/video/... hoặc link rút gọn vt.tiktok.com)"
+            class="w-full pl-12 pr-4 py-3.5 rounded-2xl border-2 border-cozy-sand bg-cozy-softCream text-sm sm:text-base font-semibold text-cozy-dark placeholder-cozy-slate/50 focus:outline-none focus:border-cozy-terracotta focus:bg-white transition shadow-inner"
+          >
+        </div>
+
+        <!-- Action Buttons Group -->
+        <div class="flex items-center gap-2.5 flex-wrap sm:flex-nowrap shrink-0">
+          <!-- 1-Click Tải & Dựng Ngay Button -->
+          <button
+            id="btnDownloadAndRender"
+            onclick="handleDownloadAndRender()"
+            class="flex-1 sm:flex-none px-6 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm shadow-md shadow-emerald-600/30 transition flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
+            title="Tải video về và lập tức dựng hoạt hình tự động"
+          >
+            <i class="fa-solid fa-bolt text-yellow-300"></i>
+            <span>Tải & Dựng Ngay</span>
+          </button>
+
+          <!-- Download Only Button -->
+          <button
+            id="btnDownload"
+            onclick="handleDownload()"
+            class="px-5 py-3.5 rounded-2xl bg-cozy-terracotta hover:bg-[#c9674c] active:scale-95 text-white font-bold text-xs sm:text-sm shadow-md shadow-cozy-terracotta/25 transition flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
+            title="Chỉ tải video về máy lưu vào danh sách"
+          >
+            <i class="fa-solid fa-cloud-arrow-down"></i>
+            <span>Tải Video</span>
+          </button>
+
+          <!-- Batch Render All Button -->
+          <button
+            id="btnBatchRender"
+            onclick="handleRenderAll()"
+            class="px-5 py-3.5 rounded-2xl bg-cozy-slate hover:bg-[#2e3146] active:scale-95 text-white font-bold text-xs sm:text-sm shadow-md shadow-cozy-slate/25 transition flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
+            title="Dựng toàn bộ video trong danh sách"
+          >
+            <i class="fa-solid fa-wand-magic-sparkles text-cozy-amber"></i>
+            <span>Dựng Toàn Bộ</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ROW 2: CONFIGURATION TOOLBAR (CẤU HÌNH TẠO VIDEO MẶC ĐỊNH) -->
+      <div class="pt-3.5 border-t border-cozy-sand/60 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+        <div class="flex items-center gap-2 text-cozy-slate font-bold">
+          <span class="w-6 h-6 rounded-lg bg-cozy-terracotta/15 text-cozy-terracotta flex items-center justify-center text-xs">
+            <i class="fa-solid fa-sliders"></i>
+          </span>
+          <span class="text-xs uppercase tracking-wider text-cozy-slate/80">Cấu hình dựng mặc định:</span>
+        </div>
+
+        <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2.5">
+          <!-- Channel Count Limit -->
+          <div class="flex items-center gap-2 bg-cozy-softCream hover:bg-white border-2 border-cozy-sand/80 hover:border-cozy-terracotta rounded-2xl px-3.5 py-2 shadow-sm transition">
+            <span class="font-bold text-cozy-slate uppercase text-[11px] whitespace-nowrap flex items-center gap-1.5">
+              <i class="fa-solid fa-layer-group text-cozy-terracotta"></i>
+              <span>Số Lượng:</span>
+            </span>
+            <select id="inputLimit" class="bg-transparent font-bold text-xs text-cozy-dark focus:outline-none cursor-pointer">
+              <option value="1">1 video</option>
+              <option value="3">3 video</option>
+              <option value="5" selected>5 video</option>
+              <option value="10">10 video</option>
+              <option value="20">20 video</option>
+              <option value="50">50 video</option>
+              <option value="all">⚡ Tất cả video (Toàn bộ kênh)</option>
+            </select>
+          </div>
+
+          <!-- Chuẩn Màn Hình (Aspect Ratio Selector) -->
+          <div class="flex items-center gap-2 bg-cozy-softCream hover:bg-white border-2 border-cozy-sand/80 hover:border-cozy-terracotta rounded-2xl px-3.5 py-2 shadow-sm transition">
+            <span class="font-bold text-cozy-slate uppercase text-[11px] whitespace-nowrap flex items-center gap-1.5">
+              <i class="fa-solid fa-crop-simple text-cozy-terracotta"></i>
+              <span>Tỉ Lệ:</span>
+            </span>
+            <select id="globalAspectRatio" class="bg-transparent font-bold text-xs text-cozy-dark focus:outline-none cursor-pointer">
+              <option value="9:16" selected>📱 9:16 (Dọc TikTok/Reels)</option>
+              <option value="16:9">🖥️ 16:9 (Ngang TV/YouTube)</option>
+              <option value="1:1">⏹️ 1:1 (Vuông Instagram)</option>
+              <option value="4:3">📺 4:3 (Ngang Cổ Điển)</option>
+              <option value="4:5">📸 4:5 (Dọc Feed)</option>
+              <option value="16:10">💻 16:10 (Ngang Tablet)</option>
+              <option value="10:16">📱 10:16 (Dọc Tablet)</option>
+            </select>
+          </div>
+
+          <!-- Phong Cách Hoạt Họa (Style Selector) -->
+          <div class="flex items-center gap-2 bg-cozy-softCream hover:bg-white border-2 border-cozy-sand/80 hover:border-cozy-terracotta rounded-2xl px-3.5 py-2 shadow-sm transition">
+            <span class="font-bold text-cozy-slate uppercase text-[11px] whitespace-nowrap flex items-center gap-1.5">
+              <i class="fa-solid fa-palette text-cozy-terracotta"></i>
+              <span>Phong Cách:</span>
+            </span>
+            <select id="globalStyle" class="bg-transparent font-bold text-xs text-cozy-dark focus:outline-none cursor-pointer">
+              <option value="cozy" selected>☕ Cozy 2D (Mặc định)</option>
+              <option value="midnight">🌌 Midnight Deep</option>
+              <option value="scrapbook">📝 Scrapbook Collage</option>
+              <option value="pixel">🎮 Pixel Art 16-Bit</option>
+              <option value="brutalism">📊 Neo-Brutalism</option>
+              <option value="whiteboard">✍️ Whiteboard Sketch</option>
+            </select>
+          </div>
+
+          <!-- Nhân Vật (Character Selector) -->
+          <div class="flex items-center gap-2 bg-cozy-softCream hover:bg-white border-2 border-cozy-sand/80 hover:border-cozy-terracotta rounded-2xl px-3.5 py-2 shadow-sm transition">
+            <span class="font-bold text-cozy-slate uppercase text-[11px] whitespace-nowrap flex items-center gap-1.5">
+              <i class="fa-solid fa-user-astronaut text-cozy-terracotta"></i>
+              <span>Nhân Vật:</span>
+            </span>
+            <select id="globalCharacter" class="bg-transparent font-bold text-xs text-cozy-dark focus:outline-none cursor-pointer">
+              <option value="stickman" selected>🧍 Người Que (Cool)</option>
+              <option value="cat">🐱 Mèo Béo Chill</option>
+              <option value="hoodie">🎧 Cậu Bé Hoodie</option>
+              <option value="bear">🐻 Gấu Teddy</option>
+              <option value="bot">🤖 Robot AI</option>
+              <option value="ghost">👻 Bé Ma Bồng Bềnh</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </section>

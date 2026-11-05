@@ -1,0 +1,42 @@
+    <!-- STATS SUMMARY CARDS -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div class="glass-card rounded-2xl p-4 flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-cozy-slate/10 flex items-center justify-center text-cozy-slate text-xl">
+          <i class="fa-solid fa-film"></i>
+        </div>
+        <div>
+          <div class="text-xs uppercase font-bold text-cozy-slate/70">Tổng Video</div>
+          <div id="statTotal" class="text-2xl font-extrabold text-cozy-dark">0</div>
+        </div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-4 flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 text-xl">
+          <i class="fa-solid fa-clock"></i>
+        </div>
+        <div>
+          <div class="text-xs uppercase font-bold text-amber-700/80">Chờ Dựng</div>
+          <div id="statNew" class="text-2xl font-extrabold text-amber-600">0</div>
+        </div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-4 flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 text-xl">
+          <i class="fa-solid fa-spinner fa-spin"></i>
+        </div>
+        <div>
+          <div class="text-xs uppercase font-bold text-blue-700/80">Đang Xử Lý</div>
+          <div id="statProcessing" class="text-2xl font-extrabold text-blue-600">0</div>
+        </div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-4 flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600 text-xl">
+          <i class="fa-solid fa-circle-check"></i>
+        </div>
+        <div>
+          <div class="text-xs uppercase font-bold text-emerald-700/80">Đã Hoàn Thành</div>
+          <div id="statCompleted" class="text-2xl font-extrabold text-emerald-600">0</div>
+        </div>
+      </div>
+    </div>

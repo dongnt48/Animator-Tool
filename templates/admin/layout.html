@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ page_title }} · Animator Studio</title>
+  {% block head_extra %}{% endblock %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/controls.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/layout.css') }}">
+  {% block page_styles %}{% endblock %}
+  <script type="module" src="{{ url_for('static', filename='admin/js/pages/' + active_page + '.js') }}"></script>
+</head>
+<body class="admin-layout">
+  <a href="#mainContent" class="skip-link">Đến nội dung chính</a>
+  {% include 'admin/partials/sidebar.html' %}
+  <header class="admin-topbar"><div><span class="breadcrumb">Không gian làm việc</span><span class="breadcrumb-divider">/</span><strong>{{ page_title }}</strong></div><a href="/" class="admin-user"><span class="user-avatar">A</span><span>Studio cá nhân</span></a></header>
+  <main id="mainContent" tabindex="-1">
+    <div class="page-heading"><div><p class="eyebrow">QUẢN LÝ XUẤT BẢN</p><h1>{{ page_title }}</h1><p>{{ page_description }}</p></div><div class="worker-control"><span id="workerStatus" class="badge">Đang kiểm tra…</span><button type="button" id="startWorker" class="secondary">Khởi động bộ đăng</button><button type="button" id="refreshStatus" class="secondary">Làm mới</button>{% if active_page != 'new' %}<a href="/publishing/new" class="new-post-link">+ Đặt lịch riêng</a>{% endif %}</div></div>
+    <div id="notice" role="status" aria-live="polite" class="notice" hidden></div>
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="admin-footer">Animator Studio <span>Giữ máy bật và có mạng khi đến giờ đăng.</span></footer>
+</body>
+</html>

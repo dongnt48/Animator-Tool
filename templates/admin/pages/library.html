@@ -1,0 +1,69 @@
+{% extends 'admin/layout.html' %}
+{% block head_extra %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='admin/css/library-utilities.css') }}">
+{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{{ url_for('static', filename='admin/css/library.css') }}">{% endblock %}
+{% block content %}
+<div class="library-page">
+<div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col gap-3 pointer-events-none"></div>
+    {% include 'admin/partials/video-stats.html' %}
+    {% include 'admin/partials/caption-controls.html' %}
+    <!-- VIDEO MANAGEMENT TABLE SECTION -->
+    <section class="glass-card rounded-3xl overflow-hidden shadow-xl border border-cozy-sand">
+      <div
+        class="p-6 border-b border-cozy-sand/80 flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white/50">
+        <div>
+          <h2 class="text-lg font-extrabold text-cozy-dark flex items-center gap-2">
+            <span>📋 Danh Sách & Quản Lý Nội Dung Video</span>
+          </h2>
+          <p class="text-xs text-cozy-slate/70">Tùy chọn tỉ lệ màn hình, theo dõi tiến độ và mở xem video thành phẩm</p>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button onclick="fetchVideos()"
+            class="px-4 py-2 rounded-xl bg-white border border-cozy-sand text-cozy-slate hover:bg-cozy-bg font-semibold text-xs flex items-center gap-2 shadow-sm transition">
+            <i class="fa-solid fa-arrows-rotate"></i>
+            <span>Làm Mới</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- TABLE -->
+      <div class="overflow-x-auto custom-scroll">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr class="bg-cozy-softCream text-cozy-slate uppercase text-xs font-extrabold border-b border-cozy-sand">
+              <th class="py-3.5 px-3 text-center" scope="col">Chọn</th>
+              <th class="py-3.5 px-3 w-12 text-center">STT</th>
+              <th class="py-3.5 px-4 min-w-[200px]">Tiêu Đề & Thông Tin</th>
+              <th class="py-3.5 px-3 text-center">Video gốc</th>
+              <th class="py-3.5 px-3 text-center">Thành phẩm</th>
+              <th class="py-3.5 px-3 w-28 text-center">Tỉ Lệ</th>
+              <th class="py-3.5 px-3 w-36 text-center">Phong Cách</th>
+              <th class="py-3.5 px-3 w-36 text-center">Nhân Vật</th>
+              <th class="py-3.5 px-3 w-20 text-center">Thời Lượng</th>
+              <th class="py-3.5 px-3 w-48 text-center">Trạng Thái Dựng</th>
+              <th class="py-3.5 px-3 w-48 text-center">Đã Đăng Ở Đâu</th>
+              <th class="py-3.5 px-3 w-64 text-center">Thao Tác</th>
+            </tr>
+          </thead>
+          <tbody id="videoTableBody" class="divide-y divide-cozy-sand/40">
+            <!-- Dynamic rows will be inserted here -->
+            <tr>
+              <td colspan="12" class="py-12 text-center text-cozy-slate/60">
+                <i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2 text-cozy-terracotta"></i>
+                <div>Đang tải dữ liệu video...</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% include 'admin/partials/video-player.html' %}
+  {% include 'admin/partials/library-schedule.html' %}
+  <!-- JAVASCRIPT LOGIC -->
+
+</div>
+<script src="{{ url_for('static', filename='admin/js/library.js') }}" defer></script>
+{% endblock %}

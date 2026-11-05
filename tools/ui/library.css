@@ -1,0 +1,3 @@
+/* Initialize Tailwind variables; preflight remains disabled in the config. */
+@tailwind base;
+@tailwind utilities;

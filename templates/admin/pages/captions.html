@@ -1,0 +1,11 @@
+{% extends 'admin/layout.html' %}
+{% block content %}
+<div class="caption-workspace">
+  <section class="panel">
+    <div class="section-heading"><h2>Chọn video</h2></div>
+    <div id="captionVideos" class="caption-video-list"><p>Đang tải video…</p></div>
+  </section>
+  {% include 'admin/partials/caption-controls.html' %}
+</div>
+{% include 'admin/partials/caption-results.html' %}
+{% endblock %}

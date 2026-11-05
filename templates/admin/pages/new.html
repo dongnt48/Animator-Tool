@@ -1,0 +1,18 @@
+{% extends 'admin/layout.html' %}
+{% block content %}
+    <div class="workspace">
+      <section class="panel" aria-labelledby="scheduleHeading"><p class="eyebrow">LỊCH MỚI</p><h2 id="scheduleHeading">Chọn video và thời gian</h2>
+        <form id="scheduleForm">
+          <label for="videoSelect">Video đã dựng</label><select id="videoSelect" required><option value="">Đang tải thư viện…</option></select>
+          <p id="emptyVideos" class="hint" hidden>Chưa có video đã dựng với file MP4 còn tồn tại. <a href="/">Về thư viện để dựng video</a>.</p>
+          <label for="scheduleAt">Ngày và giờ đăng</label><input id="scheduleAt" type="datetime-local" required><p class="hint" id="timezoneHint"></p>
+          <label for="youtubeAudience">Đối tượng khán giả trên YouTube</label><select id="youtubeAudience" required><option value="">Chọn theo nội dung video</option><option value="no">Không dành riêng cho trẻ em</option><option value="yes">Dành cho trẻ em</option></select><p class="hint">Đây là phân loại nội dung, không phải giới hạn độ tuổi. Video YouTube sẽ được xuất bản công khai.</p>
+          <div class="destinations" aria-label="Nền tảng nhận bài"><span>Facebook Reels</span><span>Instagram Reels</span><span>Threads</span><span>TikTok</span><span>YouTube</span></div>
+          <label class="confirmation"><input type="checkbox" id="confirmPublish" required><span>Tôi xác nhận video, caption và tài khoản đã chọn; cho phép tự động đăng lên cả 5 nền tảng vào giờ này. Tôi có quyền sử dụng nội dung và âm thanh.</span></label>
+          <button id="scheduleButton" type="submit" class="primary">Lên lịch cho cả 5 nền tảng</button><p class="hint">Caption được giữ nguyên tại thời điểm lên lịch. Nền tảng nào lỗi sẽ có trạng thái riêng.</p>
+        </form>
+      </section>
+      <aside class="panel preview" aria-labelledby="previewHeading"><p class="eyebrow">NỘI DUNG SẼ ĐĂNG</p><h2 id="previewHeading">Xem trước</h2><div class="video-frame"><video id="previewVideo" controls preload="metadata" aria-label="Video sẽ đăng" hidden></video><p id="previewEmpty">Chọn một video từ thư viện.</p></div><h3>Caption có sẵn</h3><p id="captionPreview" class="caption">Caption của video sẽ hiện ở đây.</p></aside>
+    </div>
+
+{% endblock %}

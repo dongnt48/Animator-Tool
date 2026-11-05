@@ -1,0 +1,15 @@
+<dialog id="libraryScheduleDialog" class="library-schedule-dialog" aria-labelledby="libraryScheduleHeading">
+  <div class="section-heading"><h2 id="libraryScheduleHeading">Lên lịch đăng</h2><button id="libraryScheduleClose" type="button" class="secondary" aria-label="Đóng lịch đăng">Đóng</button></div>
+  <p id="libraryScheduleTitle" class="library-schedule-title"></p>
+  <details><summary>Caption sẽ đăng</summary><p id="libraryScheduleCaption" class="record-text"></p></details>
+  <form id="libraryScheduleForm">
+    <label for="libraryScheduleAt">Ngày và giờ đăng</label><input id="libraryScheduleAt" type="datetime-local" required>
+    <p id="libraryScheduleTimezone" class="hint"></p>
+    <label for="libraryScheduleAudience">Đối tượng trên YouTube</label>
+    <select id="libraryScheduleAudience" required><option value="">Chọn theo nội dung video</option><option value="no">Không dành riêng cho trẻ em</option><option value="yes">Dành cho trẻ em</option></select>
+    <p class="hint">Đăng lên Facebook Reels, Instagram Reels, Threads, TikTok và YouTube.</p>
+    <label class="confirmation"><input id="libraryScheduleConfirm" type="checkbox" required><span>Cho phép tự động đăng video và caption này lên cả 5 nền tảng vào giờ đã chọn. Tôi có quyền sử dụng nội dung và âm thanh.</span></label>
+    <p id="libraryScheduleMessage" role="status" aria-live="polite" class="hint"></p>
+    <button id="libraryScheduleSubmit" class="primary" type="submit">Lưu lịch đăng</button>
+  </form>
+</dialog>
