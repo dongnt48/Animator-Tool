@@ -1,5 +1,6 @@
 import os
 import threading
+import database
 from flask import Flask, render_template, jsonify, request, send_from_directory
 
 from database import get_all_videos, get_video, add_video, update_video_status, delete_video, update_video_aspect_ratio, update_video_style, update_video_character
@@ -16,6 +17,10 @@ app.before_request(local_request_guard)
 app.register_blueprint(social)
 from services.captions.routes import captions
 app.register_blueprint(captions)
+from services.animation.routes import animation
+app.register_blueprint(animation)
+from services.covers.routes import covers
+app.register_blueprint(covers)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
@@ -26,10 +31,22 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 render_queue_lock = threading.Lock()
 is_batch_rendering = False
 
-def process_single_render_task(video_id, aspect_ratio=None, style=None, character=None):
-    renderer.render_video_pipeline(video_id, aspect_ratio=aspect_ratio, style=style, character=character)
 
-def process_batch_render_task(aspect_ratio=None, style=None, character=None, force_all=False):
+def register_download(url, result, aspect_ratio, style, character):
+    try:
+        return add_video(title=result['title'], tiktok_url=url, video_filename=result['video_filename'],
+                         thumbnail=result['thumbnail'], duration_sec=result['duration_sec'],
+                         aspect_ratio=aspect_ratio, style=style, character=character,
+                         source_video_id=result.get('source_video_id', ''), source_hash=result.get('source_hash', ''))
+    except database.DuplicateVideo:
+        downloader.discard_download(result)
+        return None
+
+
+def process_single_render_task(video_id, aspect_ratio=None, style=None, character=None, animation_settings=None):
+    renderer.render_video_pipeline(video_id, aspect_ratio=aspect_ratio, style=style, character=character, animation_settings=animation_settings)
+
+def process_batch_render_task(aspect_ratio=None, style=None, character=None, force_all=False, animation_settings=None):
     global is_batch_rendering
     with render_queue_lock:
         if is_batch_rendering:
@@ -43,12 +60,12 @@ def process_batch_render_task(aspect_ratio=None, style=None, character=None, for
                 target_ratio = aspect_ratio or v.get("aspect_ratio", "9:16")
                 target_style = style or v.get("style", "cozy")
                 target_char = character or v.get("character", "stickman")
-                renderer.render_video_pipeline(v["id"], aspect_ratio=target_ratio, style=target_style, character=target_char)
+                renderer.render_video_pipeline(v["id"], aspect_ratio=target_ratio, style=target_style, character=target_char, animation_settings=animation_settings)
     finally:
         with render_queue_lock:
             is_batch_rendering = False
 
-def process_download_and_render_task(url, limit=5, aspect_ratio="9:16", style="cozy", character="stickman"):
+def process_download_and_render_task(url, limit=5, aspect_ratio="9:16", style="cozy", character="stickman", animation_settings=None):
     placeholder_id = None
     try:
         # Normalize input
@@ -76,24 +93,15 @@ def process_download_and_render_task(url, limit=5, aspect_ratio="9:16", style="c
             placeholder_id = placeholder["id"]
             update_video_status(placeholder_id, "processing", aspect_ratio=aspect_ratio, style=style, character=character, log_msg="Đang tải video từ TikTok...")
 
-            res = downloader.download_single_video(url)
-
-            # Update database record with downloaded info
-            with render_queue_lock:
-                from database import LOCK, _load_data, _save_data
-                with LOCK:
-                    d = _load_data()
-                    for v in d:
-                        if v["id"] == placeholder_id:
-                            v["title"] = res["title"]
-                            v["video_filename"] = res["video_filename"]
-                            v["thumbnail"] = res["thumbnail"]
-                            v["duration_sec"] = res["duration_sec"]
-                            break
-                    _save_data(d)
+            res = downloader.download_single_video(url, exclude_video_id=placeholder_id)
+            try:
+                database.attach_download(placeholder_id, res, render_next=True)
+            except Exception:
+                downloader.discard_download(res)
+                raise
 
             # Now render immediately
-            renderer.render_video_pipeline(placeholder_id, aspect_ratio=aspect_ratio, style=style, character=character)
+            renderer.render_video_pipeline(placeholder_id, aspect_ratio=aspect_ratio, style=style, character=character, animation_settings=animation_settings)
 
         else:
             # Channel videos
@@ -111,6 +119,9 @@ def process_download_and_render_task(url, limit=5, aspect_ratio="9:16", style="c
             update_video_status(placeholder_id, "processing", aspect_ratio=aspect_ratio, style=style, character=character, log_msg="Đang quét video từ kênh...")
 
             results = downloader.download_channel_videos(url, limit=limit)
+            if not results and getattr(results, 'skipped_duplicates', 0):
+                delete_video(placeholder_id)
+                return
             if not results:
                 raise RuntimeError("TikTok chặn quét tự động kênh. Vui lòng dán link video cụ thể (dạng /video/...)")
 
@@ -119,21 +130,17 @@ def process_download_and_render_task(url, limit=5, aspect_ratio="9:16", style="c
 
             added_ids = []
             for vid_url, res in results:
-                v = add_video(
-                    title=res["title"],
-                    tiktok_url=vid_url,
-                    video_filename=res["video_filename"],
-                    thumbnail=res["thumbnail"],
-                    duration_sec=res["duration_sec"],
-                    aspect_ratio=aspect_ratio,
-                    style=style,
-                    character=character
-                )
-                added_ids.append(v["id"])
+                v = register_download(vid_url, res, aspect_ratio, style, character)
+                if v:
+                    added_ids.append(v["id"])
 
             for vid_id in added_ids:
-                renderer.render_video_pipeline(vid_id, aspect_ratio=aspect_ratio, style=style, character=character)
+                renderer.render_video_pipeline(vid_id, aspect_ratio=aspect_ratio, style=style, character=character, animation_settings=animation_settings)
 
+    except database.DuplicateVideo as error:
+        if placeholder_id:
+            delete_video(placeholder_id)
+        print('[Download skipped]', error)
     except Exception as e:
         print("[Download and Render Error]", e)
         if placeholder_id:
@@ -168,21 +175,12 @@ def process_download_task(url, limit=5, aspect_ratio="9:16", style="cozy", chara
             placeholder_id = placeholder["id"]
             update_video_status(placeholder_id, "processing", aspect_ratio=aspect_ratio, style=style, character=character, log_msg="Đang kết nối tải video TikTok...")
 
-            res = downloader.download_single_video(url)
-            with render_queue_lock:
-                from database import LOCK, _load_data, _save_data
-                with LOCK:
-                    d = _load_data()
-                    for v in d:
-                        if v["id"] == placeholder_id:
-                            v["title"] = res["title"]
-                            v["video_filename"] = res["video_filename"]
-                            v["thumbnail"] = res["thumbnail"]
-                            v["duration_sec"] = res["duration_sec"]
-                            v["status"] = "new"
-                            v["log"] = "Tải về thành công, sẵn sàng dựng hoạt hình."
-                            break
-                    _save_data(d)
+            res = downloader.download_single_video(url, exclude_video_id=placeholder_id)
+            try:
+                database.attach_download(placeholder_id, res)
+            except Exception:
+                downloader.discard_download(res)
+                raise
         else:
             placeholder = add_video(
                 title=f"Đang quét kênh: {url[:40]}...",
@@ -198,6 +196,9 @@ def process_download_task(url, limit=5, aspect_ratio="9:16", style="cozy", chara
             update_video_status(placeholder_id, "processing", aspect_ratio=aspect_ratio, style=style, character=character, log_msg="Đang quét video từ kênh TikTok...")
 
             results = downloader.download_channel_videos(url, limit=limit)
+            if not results and getattr(results, 'skipped_duplicates', 0):
+                delete_video(placeholder_id)
+                return
             if not results:
                 raise RuntimeError("TikTok chặn quét tự động kênh. Vui lòng dán link video cụ thể (dạng /video/...)")
 
@@ -205,16 +206,11 @@ def process_download_task(url, limit=5, aspect_ratio="9:16", style="cozy", chara
             placeholder_id = None
 
             for vid_url, res in results:
-                add_video(
-                    title=res["title"],
-                    tiktok_url=vid_url,
-                    video_filename=res["video_filename"],
-                    thumbnail=res["thumbnail"],
-                    duration_sec=res["duration_sec"],
-                    aspect_ratio=aspect_ratio,
-                    style=style,
-                    character=character
-                )
+                register_download(vid_url, res, aspect_ratio, style, character)
+    except database.DuplicateVideo as error:
+        if placeholder_id:
+            delete_video(placeholder_id)
+        print('[Download skipped]', error)
     except Exception as e:
         print("[App Download Error]", e)
         if placeholder_id:
@@ -255,6 +251,10 @@ def api_download():
 
     if not url:
         return jsonify({"status": "error", "message": "Vui lòng nhập đường link TikTok hoặc kênh."}), 400
+    duplicate = database.find_duplicate_video(url)
+    if duplicate:
+        return jsonify(status='error', message=str(database.DuplicateVideo(duplicate)), duplicate_id=duplicate['id'],
+                       deleted=bool(duplicate.get('deleted_at'))), 409
 
     # Start download in background thread
     t = threading.Thread(target=process_download_task, args=(url, limit, aspect_ratio, style, character), daemon=True)
@@ -272,11 +272,12 @@ def api_render(video_id):
     aspect_ratio = data.get("aspect_ratio") or video.get("aspect_ratio", "9:16")
     style = data.get("style") or video.get("style", "cozy")
     character = data.get("character") or video.get("character", "stickman")
+    animation_settings = {'mode': 'legacy'}
 
     # Immediately mark as processing so UI updates on next poll instantly
     update_video_status(video_id, "processing", aspect_ratio=aspect_ratio, style=style, character=character, log_msg=f"1/4: Đang chuẩn bị dựng video ({aspect_ratio} - {style} - {character})...")
 
-    t = threading.Thread(target=process_single_render_task, args=(video_id, aspect_ratio, style, character), daemon=True)
+    t = threading.Thread(target=process_single_render_task, args=(video_id, aspect_ratio, style, character, animation_settings), daemon=True)
     t.start()
 
     return jsonify({"status": "success", "message": f"Bắt đầu dựng hoạt hình {aspect_ratio} ({style} - {character}) cho video #{video['stt']}"})
@@ -304,6 +305,7 @@ def api_render_all():
             "message": f"Tất cả {len(videos)} video đã hoàn thành. Bạn có muốn dựng lại toàn bộ theo chuẩn {aspect_ratio or 'mới'} không?"
         })
 
+    animation_settings = {'mode': 'legacy'}
     for v in videos:
         if force_all or v["status"] in ["new", "error"]:
             v_ratio = aspect_ratio or v.get("aspect_ratio", "9:16")
@@ -311,7 +313,7 @@ def api_render_all():
             v_char = character or v.get("character", "stickman")
             update_video_status(v["id"], "processing", aspect_ratio=v_ratio, style=v_style, character=v_char, log_msg=f"Đang chuẩn bị dựng hàng loạt ({v_ratio} - {v_style} - {v_char})...")
 
-    t = threading.Thread(target=process_batch_render_task, args=(aspect_ratio, style, character, force_all), daemon=True)
+    t = threading.Thread(target=process_batch_render_task, args=(aspect_ratio, style, character, force_all, animation_settings), daemon=True)
     t.start()
 
     return jsonify({"status": "success", "message": "Đã bắt đầu tiến trình dựng hoạt hình hàng loạt cho tất cả video!"})
@@ -328,10 +330,23 @@ def api_download_and_render():
 
     if not url:
         return jsonify({"status": "error", "message": "Vui lòng nhập đường link TikTok."}), 400
+    duplicate = database.find_duplicate_video(url)
+    if duplicate:
+        return jsonify(status='error', message=str(database.DuplicateVideo(duplicate)), duplicate_id=duplicate['id'],
+                       deleted=bool(duplicate.get('deleted_at'))), 409
 
-    t = threading.Thread(target=process_download_and_render_task, args=(url, limit, aspect_ratio, style, character), daemon=True)
+    animation_settings = {'mode': 'legacy'}
+    t = threading.Thread(target=process_download_and_render_task, args=(url, limit, aspect_ratio, style, character, animation_settings), daemon=True)
     t.start()
     return jsonify({"status": "success", "message": "Đang bắt đầu tải và dựng hoạt hình tự động!"})
+
+@app.get('/api/videos/check-duplicate')
+def api_check_duplicate():
+    duplicate = database.find_duplicate_video(request.args.get('url', ''))
+    return jsonify(status='success', duplicate=bool(duplicate),
+                   video_id=duplicate['id'] if duplicate else None,
+                   deleted=bool(duplicate and duplicate.get('deleted_at')))
+
 
 @app.route("/api/video/<video_id>/aspect-ratio", methods=["POST"])
 def api_update_aspect_ratio(video_id):
@@ -356,33 +371,25 @@ def api_update_character(video_id):
 
 @app.route("/api/video/<video_id>", methods=["DELETE"])
 def api_delete_video(video_id):
-    v = get_video(video_id)
+    v = get_video(video_id, include_deleted=True)
     if v:
-        # Delete download file
-        if v.get("video_filename"):
-            orig_path = os.path.join(DOWNLOADS_DIR, v["video_filename"])
-            if os.path.exists(orig_path):
-                try: os.remove(orig_path)
-                except Exception: pass
-
-        # Delete output file
-        if v.get("output_filename"):
-            out_path = os.path.join(OUTPUTS_DIR, v["output_filename"])
-            if os.path.exists(out_path):
-                try: os.remove(out_path)
-                except Exception: pass
-
-        # Delete thumbnail
-        if v.get("thumbnail") and v["thumbnail"].startswith("/static/thumbnails/"):
-            thumb_name = os.path.basename(v["thumbnail"])
-            thumb_path = os.path.join(STATIC_DIR, "thumbnails", thumb_name)
-            if os.path.exists(thumb_path):
-                try: os.remove(thumb_path)
-                except Exception: pass
-
-        delete_video(video_id)
-
-    return jsonify({"status": "success", "message": "Đã xóa video thành công."})
+        if not v.get('deleted_at') and v.get('status') == 'processing':
+            return jsonify(status='error', message='Video đang xử lý. Chờ hoàn tất trước khi xóa.'), 409
+        from services.video_deletion import delete_media
+        try:
+            from services.covers.routes import cover_root
+            errors, shared = delete_media(v, DOWNLOADS_DIR, OUTPUTS_DIR, STATIC_DIR, cover_root())
+        except database.VideoBusy as error:
+            return jsonify(status='error', message=str(error)), 409
+        if errors:
+            return jsonify(status='error', message='Đã xóa mềm record nhưng chưa xóa được một số file. Đóng trình phát và thử xóa lại.',
+                           cleanup_pending=True, video_id=video_id), 503
+        message = 'Đã xóa file và ẩn video. Record được giữ để kiểm tra trùng.'
+        if shared:
+            message = 'Đã ẩn video và giữ record kiểm tra trùng. File dùng chung được giữ cho video khác; các file riêng đã xóa.'
+        return jsonify(status='success', message=message,
+                       shared_files_retained=len(shared))
+    return jsonify(status='success', message='Video không còn trong thư viện.')
 
 @app.route("/favicon.ico")
 def favicon():

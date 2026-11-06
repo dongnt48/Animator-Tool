@@ -1,0 +1,30 @@
+<section class="panel animation-settings" aria-label="Cấu hình hoạt hình">
+  <form id="animationSettingsForm">
+    <div class="animation-settings-row">
+      <strong>Antigravity · Theo lời thoại</strong>
+      <span id="animationReadiness" class="hint" role="status">Đang kiểm tra…</span>
+      <button type="submit" id="saveAnimationSettings" class="btn" disabled>Lưu cấu hình</button>
+    </div>
+    <details>
+      <summary>Tùy chỉnh model</summary>
+      <div class="animation-settings-row">
+        <label>Model Antigravity
+          <input id="animationModel" name="model" maxlength="200" placeholder="Để trống: model của tài khoản" disabled>
+        </label>
+        <label>Nhận diện lời thoại trên máy
+          <select id="animationSpeechModel" name="speech_model" disabled>
+            <option value="tiny">Tiny · Nhẹ nhất</option>
+            <option value="base">Base · Nhẹ</option>
+            <option value="small">Small · Cân bằng</option>
+            <option value="medium">Medium · Chậm hơn</option>
+            <option value="large-v3">Large v3 · Nặng nhất</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">Đăng nhập Google bằng lệnh <code>agy</code> trong terminal. Dùng <code>agy models</code> để xem tên model. CLI dùng quota tài khoản; trạng thái trên chỉ kiểm tra cài đặt.</p>
+      <p class="hint">Gửi toàn bộ lời thoại để phân cảnh. Kịch bản được lưu để dựng lại; model nhận diện tải về trong lần đầu.</p>
+      <p class="hint">Cảnh minh họa có hành động theo ý câu nói: chia tay, nâng đỡ, buông gánh nặng, ngã rẽ, vun đắp, hành trình và các tình huống khác.</p>
+    </details>
+    <p id="animationSettingsMessage" class="hint" role="status" aria-live="polite"></p>
+  </form>
+</section>

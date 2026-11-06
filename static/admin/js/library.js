@@ -51,6 +51,7 @@
       try {
         const res = await fetch("/api/videos");
         const data = await res.json();
+        if (!res.ok || data.status !== 'success') throw new Error(data.message || 'Không tải được trạng thái video.');
         if (data.status === "success") {
           renderTable(data.videos, data.is_batch_rendering);
           updateStats(data.videos);
@@ -59,6 +60,8 @@
         }
       } catch (err) {
         console.error("Fetch videos failed:", err);
+        const summary = document.getElementById('creationActivitySummary');
+        if (summary) summary.textContent = 'Chưa cập nhật được trạng thái. Đang kết nối lại…';
       }
     }
 
@@ -69,22 +72,76 @@
       document.getElementById("statCompleted").innerText = videos.filter(v => v.status === "completed").length;
     }
 
+    const creationTaskHistory = new Map();
+    let creationActivitySignature = '';
+
+    function creationTaskState(video) {
+      if (video.status === 'processing') {
+        return /chuẩn bị dựng hàng loạt|chờ (đến )?lượt/i.test(video.log || '') ? 'waiting' : 'running';
+      }
+      return ({new: 'waiting', error: 'error', completed: 'completed'})[video.status];
+    }
+
     function renderCreationActivity(videos) {
       const container = document.getElementById('creationActivity');
       if (!container) return;
-      const fragment = document.createDocumentFragment();
-      const active = videos.filter(video => video.status === 'processing' || video.status === 'error').slice(-8);
-      for (const video of active) {
-        const row = document.createElement('div'); row.className = 'creation-task';
-        const title = document.createElement('a'); title.href = `/videos/${encodeURIComponent(video.id)}`;
-        title.textContent = video.caption || video.title || 'Video'; title.className = 'library-title-link';
-        const state = document.createElement('span'); state.className = 'badge';
-        state.textContent = video.status === 'processing' ? 'Đang xử lý' : 'Có lỗi';
-        const log = document.createElement('p'); log.className = 'hint'; log.textContent = video.log || '';
-        row.append(title,state,log); fragment.append(row);
+      const now = Date.now();
+      const present = new Set(videos.map(v => v.id));
+      for (const id of creationTaskHistory.keys()) if (!present.has(id)) creationTaskHistory.delete(id);
+      for (const video of videos) {
+        const previous = creationTaskHistory.get(video.id) || {observed: false, completedAt: null};
+        const observed = previous.observed || ['processing', 'new'].includes(video.status);
+        const completedAt = video.status === 'completed' && observed ? previous.completedAt ?? now : null;
+        creationTaskHistory.set(video.id, {observed, completedAt});
       }
-      if (!active.length) {
-        const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'Không có video đang xử lý.'; fragment.append(empty);
+      const running = videos.filter(v => creationTaskState(v) === 'running');
+      const waiting = videos.filter(v => creationTaskState(v) === 'waiting');
+      const errors = videos.filter(v => v.status === 'error');
+      const completed = videos.filter(v => {
+        const seen = creationTaskHistory.get(v.id);
+        return v.status === 'completed' && seen.completedAt !== null && now - seen.completedAt < 60000;
+      });
+      const visible = [...running, ...waiting, ...errors.slice(-5), ...completed.slice(-5)];
+      const summary = document.getElementById('creationActivitySummary');
+      const summaryText = `${running.length} đang chạy · ${waiting.length} chờ dựng${errors.length ? ` · ${errors.length} lỗi` : ''}${completed.length ? ` · ${completed.length} vừa hoàn tất` : ''}`;
+      if (summary && summary.textContent !== summaryText) summary.textContent = summaryText;
+      const signature = JSON.stringify(visible.map(v => [v.id, v.stt, v.status, v.title, v.caption, v.log, v.video_filename]));
+      if (signature === creationActivitySignature) return;
+      creationActivitySignature = signature;
+      const fragment = document.createDocumentFragment();
+      for (const video of visible) {
+        const status = creationTaskState(video);
+        const row = document.createElement('div'); row.className = 'creation-task';
+        row.dataset.videoId = video.id; row.dataset.state = status; row.setAttribute('role', 'listitem');
+        const preview = document.createElement('a'); preview.className = 'creation-thumb';
+        preview.href = `/videos/${encodeURIComponent(video.id)}`;
+        preview.setAttribute('aria-label', `Chi tiết video #${video.stt || ''}`);
+        if (video.video_filename) {
+          const image = document.createElement('img'); image.alt = ''; image.loading = 'lazy';
+          image.width = 48; image.height = 64;
+          image.src = `/api/social/videos/${encodeURIComponent(video.id)}/thumbnail/original`;
+          image.addEventListener('error', () => { image.hidden = true; });
+          preview.append(image);
+        } else preview.textContent = 'Đang tải';
+        const content = document.createElement('div'); content.className = 'creation-task-content';
+        const title = document.createElement('a'); title.href = `/videos/${encodeURIComponent(video.id)}`;
+        title.textContent = `#${video.stt || ''} · ${video.caption || video.title || 'Video'}`;
+        title.title = video.caption || video.title || 'Video'; title.className = 'library-title-link';
+        const state = document.createElement('span'); state.className = 'badge creation-state';
+        const downloading = /tải|quét/i.test(video.log || '') && !/xuất|hoạt hình/i.test(video.log || '');
+        state.textContent = ({running: downloading ? 'Đang tải' : 'Đang dựng', waiting: video.status === 'processing' ? 'Chờ đến lượt' : 'Chờ dựng', error: 'Thất bại', completed: 'Vừa hoàn tất'})[status];
+        const log = document.createElement('p'); log.className = 'hint'; log.textContent = video.log || '';
+        content.append(title, log);
+        const stage = (video.log || '').match(/^([1-4])\/4:/);
+        if (status === 'running' && stage) {
+          const progress = document.createElement('progress'); progress.max = 4; progress.value = Number(stage[1]);
+          progress.setAttribute('aria-label', `Video #${video.stt || ''}: giai đoạn ${stage[1]} trên 4`);
+          content.append(progress);
+        }
+        row.append(preview, content, state); fragment.append(row);
+      }
+      if (!visible.length) {
+        const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'Không có video đang xử lý. Tải video hoặc bấm Dựng Toàn Bộ để bắt đầu.'; fragment.append(empty);
       }
       container.replaceChildren(fragment);
     }
@@ -128,7 +185,7 @@
       if (!videos || videos.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="12" class="py-16 text-center text-cozy-slate/60">
+            <td colspan="13" class="py-16 text-center text-cozy-slate/60">
               <div class="text-4xl mb-3">🌿</div>
               <div class="font-bold text-base text-cozy-dark">Chưa có video nào trong danh sách</div>
               <div class="text-xs text-cozy-slate/70 mt-1"><a href="/create">Mở Tạo video</a> để tải và dựng video đầu tiên.</div>
@@ -333,6 +390,9 @@
 
             <td class="py-4 px-3 text-center">${mediaThumbnail(v,'original',currentRatio,currentStyle,currentCharacter)}</td>
             <td class="py-4 px-3 text-center">${mediaThumbnail(v,'output',currentRatio,currentStyle,currentCharacter)}</td>
+            <td class="py-4 px-3 text-center">${v.cover?.portrait_filename
+              ? `<a class="library-media-thumb library-cover-thumb" href="/videos/${encodeURIComponent(v.id)}#coverForm" aria-label="Xem ảnh bìa"><img src="/api/covers/videos/${encodeURIComponent(v.id)}/image/portrait?v=${encodeURIComponent(v.cover.revision || '')}" alt="Ảnh bìa đăng bài" loading="lazy" width="64" height="80"></a>`
+              : `<span class="library-media-empty">${v.status === 'processing' ? 'Đang tạo…' : 'Chưa có bìa'}</span>`}</td>
             <!-- Chuẩn Màn Hình -->
             <td class="py-4 px-3 text-center">
               ${ratioHtml}
@@ -595,7 +655,7 @@
       }
 
       async function deleteVideoItem(videoId, stt) {
-        if (!confirm(`Bạn có chắc chắn muốn xóa Video #${stt} không?`)) {
+        if (!confirm(`Xóa file của Video #${stt} và ẩn khỏi thư viện? Record vẫn được giữ để kiểm tra trùng.`)) {
           return;
         }
 
@@ -603,7 +663,10 @@
           const res = await fetch(`/api/video/${videoId}`, { method: "DELETE" });
           const data = await res.json();
           if (data.status === "success") {
-            showToast(`Đã xóa Video #${stt}`);
+            showToast(data.message || `Đã xóa file và ẩn Video #${stt}`);
+            fetchVideos();
+          } else {
+            alert(data.message || 'Không xóa được video.');
             fetchVideos();
           }
         } catch (err) {

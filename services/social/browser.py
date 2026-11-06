@@ -157,6 +157,8 @@ class UploadFlow:
         last_next = None
         last_step_text = None
         while time.monotonic() < deadline:
+            if getattr(self, 'cover_flow', None):
+                self.cover_flow.apply('facebook')
             for field in self.page.locator('[role="textbox"][contenteditable="true"], textarea').all():
                 if field.is_visible() and field.is_editable():
                     if not caption_filled:
@@ -184,11 +186,14 @@ class UploadFlow:
             self.page.wait_for_timeout(100)
         raise BrowserStepError('Chưa nhận diện được bước tiếp theo hoặc nút Đăng Facebook Reels. Hãy kiểm tra ảnh chụp lỗi.')
 
-    def prepare(self, platform, media_path, caption, made_for_kids):
+    def prepare(self, platform, media_path, caption, made_for_kids, cover=None):
+        from .cover_flow import CoverFlow
+        self.cover_flow = CoverFlow(self.page, cover)
         if platform == 'instagram':
             self.click(r'^(Create|New post|Tạo|Bài viết mới)$')
             self.upload_file(media_path)
             self.click(r'^(Next|Tiếp)$')
+            self.cover_flow.apply(platform)
             self.click(r'^(Next|Tiếp)$')
             self.field(['textarea[aria-label*="caption" i]', 'textarea[aria-label*="chú thích" i]',
                         '[role="dialog"] [contenteditable="true"]']).fill(caption)
@@ -199,11 +204,13 @@ class UploadFlow:
             self.click(r'^(Create|New thread|Tạo|Bài viết mới)$')
             self.field(['[role="dialog"] [role="textbox"]', '[role="textbox"][contenteditable="true"]']).fill(caption)
             self.upload_file(media_path)
+            self.cover_flow.apply(platform)
             return r'^(Post|Đăng)$'
         if platform == 'tiktok':
             self.upload_file(media_path)
             self.field(['[data-e2e="caption_container"] [contenteditable="true"]',
                         '[contenteditable="true"][role="textbox"]', '[contenteditable="true"]']).fill(caption)
+            self.cover_flow.apply(platform)
             return r'^(Post|Đăng)$'
         if platform == 'youtube':
             if type(made_for_kids) is not bool:
@@ -216,6 +223,7 @@ class UploadFlow:
             title = caption.splitlines()[0].strip()[:100]
             self.field(['#title-textarea #textbox', '[aria-label*="Add a title" i]']).fill(title)
             self.field(['#description-textarea #textbox', '[aria-label*="Tell viewers" i]']).fill(caption)
+            self.cover_flow.apply(platform)
             audience = 'VIDEO_MADE_FOR_KIDS_MFK' if made_for_kids else 'VIDEO_MADE_FOR_KIDS_NOT_MFK'
             self.page.locator(f'[name="{audience}"]').click()
             for _ in range(3):
@@ -286,8 +294,9 @@ class UploadFlow:
 
 
 class BrowserPublisher:
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, cover_reporter=None):
         self.data_dir = Path(data_dir)
+        self.cover_reporter = cover_reporter
 
     def __call__(self, task, before_publish):
         from playwright.sync_api import sync_playwright
@@ -311,7 +320,10 @@ class BrowserPublisher:
                 if re.search(r'/(login|accounts/login|checkpoint|challenge|signin)', page.url, re.I):
                     raise LoginRequired('Nền tảng đang yêu cầu đăng nhập hoặc xác minh thủ công.')
                 flow = UploadFlow(page)
-                publish_button = flow.prepare(platform, task['media_path'], task['caption'], bool(task['made_for_kids']))
+                publish_button = flow.prepare(platform, task['media_path'], task['caption'], bool(task['made_for_kids']), cover=task.get('cover'))
+                flow.cover_flow.finalize()
+                if self.cover_reporter:
+                    self.cover_reporter(task, flow.cover_flow.state, flow.cover_flow.message)
                 return flow.submit(platform, publish_button, before_publish)
             except Exception:
                 diagnostics = self.data_dir / 'diagnostics'

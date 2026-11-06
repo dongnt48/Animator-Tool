@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-speech/
 venv/
 env/
 .pytest_cache/
@@ -19,8 +20,14 @@ env/
 /outputs/
 /static/thumbnails/
 /data/videos.json
+/data/.videos-*.tmp
 /data/social/
 /data/temp_*/
+/data/animation/
+/data/covers/
+/remotion/public/
+/remotion/props_*.json
+/remotion/out/
 playwright/.auth/
 /test-results/
 /.superpowers/

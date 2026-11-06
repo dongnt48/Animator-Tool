@@ -38,7 +38,13 @@ let batchesSignature = "";
       for (const task of batch.tasks) {
         const row = element('div', undefined, 'task');
         row.append(element('span', names[task.platform], 'task-name'), badge(task.state));
-        row.append(element('span', task.message || (task.state === 'queued' ? 'Chờ đến giờ đăng.' : ''), 'task-message'));
+        const taskMessage = element('div', undefined, 'task-message');
+        taskMessage.append(element('span', task.message || (task.state === 'queued' ? 'Chờ đến giờ đăng.' : '')));
+        row.append(taskMessage);
+        const covers = {pending:'Bìa: chờ áp dụng', applied:'Bìa: đã thấy ảnh mới trong xem trước', frame:'Bìa: đã chọn khung video', automatic:'Bìa: dùng tự động', needs_review:'Bìa: cần kiểm tra', none:'Bìa: chưa cấu hình'};
+        const coverStatus = element('span', covers[task.cover_state] || covers.none, 'cover-status');
+        coverStatus.title = task.cover_message || '';
+        taskMessage.append(coverStatus);
         const controls = element('div', undefined, 'task-actions');
         if (task.url && safePostUrl(task.platform, task.url)) {
           const link = element('a','Mở bài đã đăng ↗'); link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; controls.append(link);

@@ -1,4 +1,5 @@
 import { $, element, api, notice, startPolling, names, badge } from '../core.js';
+import './cover-editor.js';
 
 const videoId = $('videoDetail').dataset.videoId;
 let expectedCaption = '';
@@ -55,6 +56,11 @@ async function load() {
       row.append(state ? badge(state.state) : element('span','Chưa đăng','hint'));
       if (state?.url) {const link = externalLink(state.url,'Xem bài đăng'); if (link) row.append(link);}
       if (state?.message) row.append(element('p',state.message,'hint'));
+      if (state?.cover_state) {
+        const labels = {pending:'Ảnh bìa: chờ áp dụng', applied:'Ảnh bìa: đã thấy ảnh mới trong xem trước', frame:'Ảnh bìa: đã chọn khung video', automatic:'Ảnh bìa: dùng tự động', needs_review:'Ảnh bìa: cần kiểm tra', none:'Ảnh bìa: chưa cấu hình'};
+        const cover = element('p', labels[state.cover_state] || labels.none, 'cover-status');
+        cover.title = state.cover_message || ''; row.append(cover);
+      }
       publications.append(row);
     }
     $('detailPublication').replaceChildren(publications);

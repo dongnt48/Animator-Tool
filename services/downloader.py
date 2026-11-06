@@ -6,12 +6,35 @@ import subprocess
 import cv2
 import re
 import shutil
+import hashlib
+from pathlib import Path
+import threading
+import uuid
+
+import database
+from services.video_identity import source_id
 
 DOWNLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "downloads")
 THUMB_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "thumbnails")
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(THUMB_DIR, exist_ok=True)
+DOWNLOAD_LOCK = threading.Lock()
+
+
+class DownloadResults(list):
+    skipped_duplicates = 0
+
+
+def discard_download(result):
+    for root, name in [(DOWNLOAD_DIR, result.get('video_filename')),
+                       (THUMB_DIR, (result.get('thumbnail') or '').removeprefix('/static/thumbnails/'))]:
+        if not isinstance(name, str) or not name or '/' in name or '\\' in name:
+            continue
+        root = Path(root).resolve()
+        path = (root/name).resolve()
+        if path.parent == root:
+            path.unlink(missing_ok=True)
 
 def _generate_thumbnail(video_path, thumb_path):
     try:
@@ -24,14 +47,35 @@ def _generate_thumbnail(video_path, thumb_path):
     except Exception as e:
         print("Thumbnail generation error:", e)
 
-def download_single_video(url):
-    print(f"[Downloader] Downloading: {url}")
-    video_id = re.search(r'/video/(\d+)', url)
-    vid_num = video_id.group(1) if video_id else str(int(os.urandom(4).hex(), 16))
+def download_single_video(url, *, exclude_video_id=None):
+    with DOWNLOAD_LOCK:
+        duplicate = database.find_duplicate_video(url, exclude_id=exclude_video_id)
+        if duplicate:
+            raise database.DuplicateVideo(duplicate)
+        result = _download_single_video(url)
+        path = Path(DOWNLOAD_DIR)/result['video_filename']
+        try:
+            with path.open('rb') as stream:
+                result['source_hash'] = hashlib.file_digest(stream, 'sha256').hexdigest()
+            result['source_video_id'] = result.get('source_video_id') or source_id(url, result['video_filename'])
+            duplicate = database.find_duplicate_video(url, result['video_filename'], result['source_video_id'],
+                                                       result['source_hash'], exclude_id=exclude_video_id)
+            if duplicate:
+                raise database.DuplicateVideo(duplicate)
+            return result
+        except Exception:
+            discard_download(result)
+            raise
 
-    out_filename = f"tiktok_{vid_num}.mp4"
+
+def _download_single_video(url):
+    print(f"[Downloader] Downloading: {url}")
+    vid_num = source_id(url) or 'local_' + uuid.uuid4().hex
+    token = uuid.uuid4().hex
+
+    out_filename = f"tiktok_{vid_num}_{token}.mp4"
     out_path = os.path.join(DOWNLOAD_DIR, out_filename)
-    thumb_filename = f"thumb_{vid_num}.jpg"
+    thumb_filename = f"thumb_{vid_num}_{token}.jpg"
     thumb_path = os.path.join(THUMB_DIR, thumb_filename)
 
     title = f"TikTok Video {vid_num}"
@@ -70,7 +114,8 @@ def download_single_video(url):
                     "title": title,
                     "video_filename": out_filename,
                     "thumbnail": f"/static/thumbnails/{thumb_filename}",
-                    "duration_sec": duration_sec
+                    "duration_sec": duration_sec,
+                    "source_video_id": source_id(url, explicit=str(d.get('id', '')))
                 }
     except Exception as e:
         print("[Downloader] TikWM attempt failed:", e)
@@ -102,6 +147,7 @@ def download_single_video(url):
         }
     except Exception as e:
         print("[Downloader] yt-dlp error:", e)
+        discard_download({'video_filename': out_filename, 'thumbnail': '/static/thumbnails/'+thumb_filename})
         raise e
 
 def download_channel_videos(channel_url, limit=5):
@@ -113,7 +159,7 @@ def download_channel_videos(channel_url, limit=5):
         raise ValueError("Không tìm thấy tên kênh TikTok (@username)")
     username = match.group(1)
 
-    results = []
+    results = DownloadResults()
 
     # 1. Primary: Use yt-dlp with curl_cffi to get clean video IDs
     try:
@@ -128,16 +174,18 @@ def download_channel_videos(channel_url, limit=5):
 
         out = subprocess.check_output(cmd, text=True)
         lines = [line.strip() for line in out.splitlines() if line.strip()]
-        video_ids = lines if is_all else lines[:limit]
+        video_ids = list(dict.fromkeys(lines if is_all else lines[:limit]))
         print(f"[Downloader] Found {len(video_ids)} video IDs for @{username}:", video_ids)
         for vid_id in video_ids:
             vid_url = f"https://www.tiktok.com/@{username}/video/{vid_id}"
             try:
                 res = download_single_video(vid_url)
                 results.append((vid_url, res))
+            except database.DuplicateVideo:
+                results.skipped_duplicates += 1
             except Exception as err:
                 print(f"[Downloader] Error downloading {vid_url}:", err)
-        if results:
+        if results or results.skipped_duplicates:
             return results
     except Exception as err:
         print("[Downloader] yt-dlp channel error:", err)
@@ -151,11 +199,17 @@ def download_channel_videos(channel_url, limit=5):
             data = json.loads(resp.read().decode("utf-8"))
             if data.get("code") == 0 and "data" in data and "videos" in data["data"]:
                 videos = data["data"]["videos"] if is_all else data["data"]["videos"][:limit]
+                seen = set()
                 for v in videos:
+                    if v['video_id'] in seen:
+                        continue
+                    seen.add(v['video_id'])
                     vid_url = f"https://www.tiktok.com/@{username}/video/{v['video_id']}"
                     try:
                         res = download_single_video(vid_url)
                         results.append((vid_url, res))
+                    except database.DuplicateVideo:
+                        results.skipped_duplicates += 1
                     except Exception as err:
                         print(f"Failed to download {vid_url}:", err)
                 if results:

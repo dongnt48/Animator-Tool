@@ -62,7 +62,7 @@ def caption_of(video):
 def ready_content(videos, outputs_dir):
     result = []
     for video in videos:
-        if video.get('status') != 'completed' or not isinstance(video.get('id'), str):
+        if video.get('deleted_at') or video.get('status') != 'completed' or not isinstance(video.get('id'), str):
             continue
         try:
             path, caption = validated_output(video, outputs_dir), caption_of(video)
@@ -151,8 +151,10 @@ class DailyScheduler:
             self.record(run, 'error', 'Video đã giữ không còn sẵn sàng. Không tự chọn bài thay thế.')
             return None
         try:
-            batch = self.store.create_batch(item['id'], item['media_path'], item['caption'], run['slot_at'],
-                                            config['made_for_kids'], run['request_key'])
+            from services.covers.images import scheduled_cover
+            with scheduled_cover(item['id'], item['media_path'], self.store.path.parent/'covers') as cover:
+                batch = self.store.create_batch(item['id'], item['media_path'], item['caption'], run['slot_at'],
+                                            config['made_for_kids'], run['request_key'], cover=cover)
         except Exception as exc:
             # A concurrent tick may have completed the same idempotent request already.
             existing = self.store.find_request(run['request_key'])

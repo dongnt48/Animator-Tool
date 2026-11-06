@@ -1,0 +1,4 @@
+# Install with Python 3.13 in .venv-speech; Studio can keep its existing Python.
+faster-whisper==1.2.1
+# PyAV 19 removed metadata_errors, still used by faster-whisper 1.2.1.
+av==16.0.1

@@ -19,8 +19,9 @@ def data_dir():
 class Worker:
     def __init__(self, store, publisher=None):
         self.store = store
-        self.publisher = publisher or BrowserPublisher(store.path.parent)
         self.owner = 'worker:' + uuid.uuid4().hex
+        self.publisher = publisher or BrowserPublisher(store.path.parent, cover_reporter=lambda task, state, message:
+            self.store.set_cover_result(task['id'], self.owner, state, message))
 
     def run_once(self, now=None):
         self.store.heartbeat()
@@ -41,6 +42,11 @@ class Worker:
                 raise ValueError('Video đã bị xóa. Hãy tạo lịch mới từ video hiện có.')
             if media_hash(task['media_path']) != task['media_hash']:
                 raise ValueError('File video đã thay đổi sau khi lên lịch. Hãy tạo lịch mới để xác nhận nội dung.')
+            for shape in ('portrait', 'landscape'):
+                if task.get('cover'):
+                    cover_path = Path(task['cover'][shape+'_path']).resolve(strict=True)
+                    if cover_path.parent != self.store.path.parent/'media' or media_hash(cover_path) != task['cover'][shape+'_hash']:
+                        raise ValueError('Ảnh bìa đã thay đổi sau khi lên lịch. Tạo lịch mới để xác nhận ảnh.')
             receipt = self.publisher(task, lambda: self.store.mark_submitting(task['id'], self.owner))
             if not valid_permalink(task['platform'], receipt.url):
                 raise ValueError('Chưa có link bài hợp lệ từ nền tảng.')

@@ -1,4 +1,33 @@
 @scope (.library-page) {
+.animation-settings { padding: 14px 18px; }
+.animation-settings-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.animation-settings-row label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.animation-settings-row select, .animation-settings-row input { min-height: 38px; max-width: 100%; border: 1px solid #E5DCC5; border-radius: 8px; padding: 8px 28px 8px 10px; background-color: #FFFDF9; }
+.animation-settings-row input { width: 270px; }
+.animation-settings details { margin-top: 8px; }
+.animation-settings details .animation-settings-row { margin-top: 12px; }
+.animation-settings summary { cursor: pointer; font-size: 12px; }
+.animation-settings #animationSettingsMessage:empty { display: none; }
+.animation-video-info { display: flex; gap: 16px; margin-top: 20px; align-items: center; min-width: 0; }
+.animation-video-info[hidden] { display: none; }
+.animation-video-info img { flex-shrink: 0; border-radius: 8px; object-fit: cover; }
+.animation-video-info > div { min-width: 0; overflow-wrap: anywhere; }
+.animation-video-info p { margin: 6px 0; }
+#animationVideo { width: min(600px, 100%); min-width: 0; text-overflow: ellipsis; }
+.animation-run-state { margin: 10px 0; padding: 12px 14px; border-radius: 10px; background: #F5F3ED; border: 1px solid #E5DCC5; }
+.animation-run-state[data-state="processing"] { background: #EEF3FF; border-color: #C8D8FA; color: #3454A4; }
+.animation-run-state[data-state="error"] { background: #FFF0ED; border-color: #EDB6AA; color: #A13E2D; }
+.animation-run-state[data-state="completed"] { background: #EAF5EF; border-color: #B4D6C3; color: #24684C; }
+.animation-status-line { display: flex; align-items: center; gap: 8px; }
+.animation-spinner { display: none; width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: animation-status-spin .9s linear infinite; }
+.animation-run-state[aria-busy="true"] .animation-spinner { display: inline-block; }
+.animation-run-state .hint { color: inherit; }
+.animation-run-state progress { display: block; width: 100%; height: 8px; margin-top: 10px; accent-color: #E07A5F; }
+.animation-run-state progress[hidden], .animation-run-state p[hidden] { display: none; }
+#animationRenderMessage[data-state="error"] { color: #A13E2D; font-weight: 600; }
+@keyframes animation-status-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .animation-spinner { animation: none; } }
+@media (max-width: 600px) { .animation-settings-row label { width: 100%; } .animation-settings-row select, .animation-settings-row input { width: 100%; } }
 .glass-card {
       background: rgba(255, 255, 255, 0.94);
       backdrop-filter: blur(12px);
@@ -88,7 +117,26 @@
 .library-page .library-media-thumb img{display:block;width:100%;height:100%;object-fit:cover}
 .library-page .library-media-play{position:absolute;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#2b2d42b3;font-size:12px}
 .library-page .library-media-empty{display:inline-block;white-space:nowrap;font-size:11px;color:#626a7b}
-.creation-task{padding:12px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap}.creation-task .hint{margin:0;width:100%}.creation-task .library-title-link{max-width:600px}
+#creationActivity{max-height:520px;overflow:auto;overscroll-behavior:contain}
+#creationActivitySummary{margin:6px 0 0}
+.creation-task{padding:14px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:14px}
+.creation-task:last-child{border-bottom:0}
+.creation-task-content{min-width:0}
+.creation-task .hint{margin:5px 0 0;overflow-wrap:anywhere}
+.creation-task .library-title-link{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:1.5;color:var(--text,#2B2D42);text-decoration:none}
+.creation-thumb{display:flex;align-items:center;justify-content:center;width:48px;height:64px;border-radius:8px;overflow:hidden;background:#F1EBDD;color:#82715D;font-size:10px;text-align:center;text-decoration:none}
+.creation-thumb img{width:48px;height:64px;object-fit:cover}
+.creation-task progress{display:block;width:min(460px,100%);height:7px;margin-top:9px;accent-color:#E07A5F;appearance:none;border:0;border-radius:999px;overflow:hidden;background:#F1EBDD}
+.creation-task progress::-webkit-progress-bar{background:#F1EBDD;border-radius:999px}
+.creation-task progress::-webkit-progress-value{background:#E07A5F;border-radius:999px}
+.creation-task progress::-moz-progress-bar{background:#E07A5F;border-radius:999px}
+.creation-task[data-state="running"] .creation-state{background:#EEF3FF;color:#3454A4}
+.creation-task[data-state="waiting"] .creation-state{background:#FFF4D5;color:#85601A}
+.creation-task[data-state="error"] .creation-state{background:#FFF0ED;color:#A13E2D}
+.creation-task[data-state="completed"] .creation-state{background:#EAF5EF;color:#24684C}
+.creation-task[data-state="running"] .creation-state::before{content:"";display:inline-block;width:12px;height:12px;margin-right:7px;vertical-align:-2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:animation-status-spin .9s linear infinite}
+@media(max-width:600px){.creation-task{grid-template-columns:40px minmax(0,1fr);gap:10px}.creation-thumb,.creation-thumb img{width:40px;height:56px}.creation-state{grid-column:2;justify-self:start}.creation-task .library-title-link{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.creation-task[data-state="running"] .creation-state::before{animation:none}}
 .library-schedule-dialog{width:min(560px,calc(100vw - 32px));max-height:90vh;overflow:auto;border:1px solid var(--border);border-radius:14px;background:var(--paper);color:var(--ink);padding:24px}
 .library-schedule-dialog::backdrop{background:#2b2d4280}.library-schedule-dialog .section-heading{margin-top:0}.library-schedule-dialog h2{font-size:18px}.library-schedule-title{font-weight:650;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.library-schedule-dialog summary{cursor:pointer}.library-schedule-dialog details .record-text{max-height:160px;overflow:auto}.library-schedule-dialog .confirmation{align-items:flex-start}.library-schedule-dialog input[type=checkbox]{flex-shrink:0}
 .library-page #videoModal{padding:12px}

@@ -9,6 +9,28 @@
     <div id="detailMedia" class="record-media"></div>
   </section>
   <div class="record-columns">
+    <section class="panel record-cover-panel">
+      <h2>Ảnh bìa đăng bài</h2>
+      <p class="hint">Chọn khung từ video hoặc tải ảnh riêng. Dùng chung ảnh bìa cho các nền tảng.</p>
+      <form id="coverForm">
+        <label for="coverTitle">Tiêu đề trên ảnh bìa</label>
+        <input id="coverTitle" maxlength="100" placeholder="Khoảng 4–8 từ; để trống nếu không thêm chữ">
+        <div class="cover-actions">
+          <label for="coverTimestamp">Mốc khung hình (giây)</label>
+          <input id="coverTimestamp" type="number" min="0" step="0.1" placeholder="Tự chọn khung rõ">
+          <button type="submit" class="primary" id="coverFrameSave">Tạo & lưu từ video</button>
+          <button type="button" class="secondary" id="coverTitleSave" disabled>Lưu chữ & căn ảnh</button>
+        </div>
+        <details><summary>Căn vùng cắt ảnh</summary><div class="cover-actions">
+          <label for="coverFocusX">Trái → phải</label><input id="coverFocusX" type="range" min="0" max="100" value="50">
+          <label for="coverFocusY">Trên → dưới</label><input id="coverFocusY" type="range" min="0" max="100" value="50">
+        </div><p class="hint">Điều chỉnh rồi lưu để xem cả hai tỷ lệ ảnh bìa.</p></details>
+        <label for="coverUpload">Hoặc tải ảnh JPEG, PNG, WebP (tối đa 5 MiB)</label>
+        <div class="cover-actions"><input id="coverUpload" type="file" accept="image/jpeg,image/png,image/webp"><button type="button" class="secondary" id="coverUploadSave">Lưu ảnh tải lên</button></div>
+      </form>
+      <p id="coverMessage" class="hint" role="status" aria-live="polite">Đang tải ảnh bìa…</p>
+      <div id="coverPreviews" class="cover-previews" hidden><figure><img id="coverPortrait" alt="Ảnh bìa dọc"><figcaption>Dọc 9:16 · Reels / TikTok / YouTube Shorts</figcaption></figure><figure id="coverLandscapeFigure" hidden><img id="coverLandscape" alt="Ảnh bìa ngang"><figcaption>Ngang 16:9 · YouTube video ngang</figcaption></figure></div>
+    </section>
     <section class="panel">
       <h2>Caption</h2>
       <details><summary>Caption đang dùng</summary><p id="detailCurrentCaption" class="record-text"></p></details>

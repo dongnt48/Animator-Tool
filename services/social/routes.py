@@ -56,7 +56,8 @@ def existing_caption(video):
 
 def public_batch(batch):
     result = {key: batch[key] for key in ('id', 'video_id', 'caption', 'scheduled_at', 'made_for_kids', 'created_at')}
-    result['tasks'] = [{key: task[key] for key in ('id', 'platform', 'state', 'message', 'url', 'attempts', 'updated_at')}
+    result['cover_ready'] = bool(batch.get('cover_json') and batch.get('cover_json') != '{}')
+    result['tasks'] = [{key: task[key] for key in ('id', 'platform', 'state', 'message', 'url', 'attempts', 'updated_at', 'cover_state', 'cover_message')}
                        for task in batch['tasks']]
     return result
 
@@ -221,7 +222,10 @@ def schedule():
         raise ValueError('Chỉ lên lịch cho video đã dựng xong.')
     path = output_path(video)
     try:
-        batch = get_store().create_batch(video_id, str(path), existing_caption(video), scheduled_at, made_for_kids, request_key)
+        from services.covers.images import ensure_cover
+        from services.covers.routes import cover_root
+        cover = ensure_cover(video_id, path, cover_root())
+        batch = get_store().create_batch(video_id, str(path), existing_caption(video), scheduled_at, made_for_kids, request_key, cover=cover)
     except OSError:
         raise ValueError('Không đọc được video đầu ra. Hãy kiểm tra file rồi thử lại.') from None
     return jsonify(status='success', batch=public_batch(batch)), 201

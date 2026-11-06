@@ -9,6 +9,60 @@ from services.social.browser import UploadFlow, BrowserStepError
 
 @unittest.skipUnless(importlib.util.find_spec('playwright'), 'Install requirements and Playwright Chromium for browser tests')
 class BrowserFlowTests(unittest.TestCase):
+    def test_youtube_vertical_video_uses_portrait_cover_and_horizontal_uses_landscape(self):
+        from PIL import Image
+        from services.social.cover_flow import CoverFlow
+        for shape in ('portrait', 'landscape'):
+            Image.new('RGB', (30,40), 'red').save(Path(self.tmp.name)/(shape+'.jpg'))
+        for ratio, expected in [('9:16','portrait.jpg'), ('16:9','landscape.jpg')]:
+            with self.subTest(ratio=ratio):
+                self.page.set_content('''<div data-testid="cover-editor"><input type="file" accept="image/jpeg"
+                    onchange="const i=document.createElement('img');const reader=new FileReader();reader.onload=()=>{i.src=reader.result;this.parentNode.append(i)};reader.readAsDataURL(this.files[0])"></div>''')
+                flow = CoverFlow(self.page, {'mode':'upload', 'aspect_ratio':ratio,
+                    'portrait_path':str(Path(self.tmp.name)/'portrait.jpg'),
+                    'landscape_path':str(Path(self.tmp.name)/'landscape.jpg')})
+                flow.apply('youtube')
+                self.assertEqual(flow.state, 'applied')
+                self.assertEqual(self.page.locator('input').evaluate('(e)=>e.files[0].name'), expected)
+
+    def test_cover_upload_is_scoped_and_requires_new_preview(self):
+        from PIL import Image
+        from services.social.cover_flow import CoverFlow
+        path = Path(self.tmp.name)/'cover.jpg'; Image.new('RGB', (30, 40), 'red').save(path)
+        self.page.set_content('''<input id="video" type="file" accept="video/mp4">
+            <div data-testid="cover-editor"><input id="cover" type="file" accept="image/jpeg" onchange="const i=document.createElement('img');const reader=new FileReader();reader.onload=()=>{i.src=reader.result;this.parentNode.append(i)};reader.readAsDataURL(this.files[0])"></div>''')
+        flow = CoverFlow(self.page, {'mode': 'upload', 'portrait_path': str(path), 'landscape_path': str(path), 'aspect_ratio': '9:16'})
+        flow.apply('instagram'); flow.finalize()
+        self.assertEqual(flow.state, 'applied')
+        self.assertEqual(self.page.locator('#video').evaluate('(e)=>e.files.length'), 0)
+        self.assertEqual(self.page.locator('#cover').evaluate('(e)=>e.files[0].name'), 'cover.jpg')
+
+    def test_cover_frame_selector_reports_frame_instead_of_custom_image(self):
+        from services.social.cover_flow import CoverFlow
+        self.page.set_content('<div data-testid="cover-editor" style="width:400px"><input type="range" min="0" max="100" value="0" style="width:380px"></div>')
+        flow = CoverFlow(self.page, {'mode': 'frame', 'timestamp': 6, 'duration': 10, 'portrait_path': 'unused.jpg'})
+        flow.apply('tiktok'); flow.finalize()
+        self.assertEqual(flow.state, 'frame')
+        self.assertIn('không được tải lên', flow.message)
+
+    def test_missing_cover_controls_never_touch_video_input(self):
+        from services.social.cover_flow import CoverFlow
+        self.page.set_content('<input id="video" type="file" accept="video/mp4"><button>Post</button>')
+        flow = CoverFlow(self.page, {'portrait_path': 'must-not-upload.jpg'})
+        flow.apply('facebook'); flow.finalize()
+        self.assertEqual(flow.state, 'automatic')
+        self.assertEqual(self.page.locator('#video').evaluate('(e)=>e.files.length'), 0)
+
+    def test_opening_existing_preview_does_not_verify_an_ignored_upload(self):
+        from PIL import Image
+        from services.social.cover_flow import CoverFlow
+        path = Path(self.tmp.name)/'cover.jpg'; Image.new('RGB', (30,40), 'red').save(path)
+        self.page.set_content('''<button onclick="document.querySelector('[data-testid]').hidden=false">Edit cover</button>
+            <div data-testid="cover-editor" hidden><img width="20" height="20" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"><input type="file" accept="image/jpeg"></div>''')
+        flow = CoverFlow(self.page, {'mode':'upload', 'portrait_path':str(path)})
+        flow.apply('instagram'); flow.finalize()
+        self.assertEqual(flow.state, 'needs_review')
+
     @classmethod
     def setUpClass(cls):
         from playwright.sync_api import sync_playwright

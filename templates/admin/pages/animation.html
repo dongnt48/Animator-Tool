@@ -1,0 +1,30 @@
+{% extends 'admin/layout.html' %}
+{% block page_styles %}<link rel="stylesheet" href="{{ url_for('static', filename='admin/css/library.css') }}">{% endblock %}
+{% block content %}
+<div class="library-page">
+  {% include 'admin/partials/video-animation-settings.html' %}
+  <section class="panel">
+    <div class="section-heading"><h2>Dựng video bằng Antigravity</h2><a href="/">Mở thư viện →</a></div>
+    <form id="animationRenderForm">
+      <div class="animation-settings-row">
+        <label for="animationVideo">Video từ thư viện</label>
+        <select id="animationVideo" name="video_id" required disabled><option value="">Đang tải video…</option></select>
+        <button id="animationRenderButton" type="submit" disabled>Dựng bằng Antigravity</button>
+      </div>
+      <p class="hint">Dùng video gốc, tỉ lệ, phong cách và nhân vật đã chọn trong thư viện. Thêm video mới tại <a href="/create">Tạo video</a>.</p>
+    </form>
+    <div id="animationVideoInfo" class="animation-video-info" hidden>
+      <img id="animationThumbnail" alt="Ảnh thu nhỏ video đã chọn" width="72" height="96" loading="lazy">
+      <div><p id="animationVideoTitle"></p>
+        <div id="animationRunState" class="animation-run-state" aria-busy="false" aria-live="polite">
+          <div class="animation-status-line"><span class="animation-spinner" aria-hidden="true"></span><strong id="animationStatus"></strong></div>
+          <p id="animationProgress" class="hint"></p>
+          <progress id="animationStageProgress" max="4" value="0" aria-label="Giai đoạn dựng video" hidden></progress>
+          <p id="animationStageLabel" class="hint" hidden></p>
+        </div>
+        <a id="animationVideoDetail">Xem video và thành phẩm →</a></div>
+    </div>
+    <p id="animationRenderMessage" role="status" aria-live="polite" class="hint"></p>
+  </section>
+</div>
+{% endblock %}

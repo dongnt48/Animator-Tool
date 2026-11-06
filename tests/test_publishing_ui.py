@@ -1,5 +1,4 @@
 import importlib.util
-import logging
 import subprocess
 import tempfile
 import threading
@@ -69,6 +68,34 @@ class PublishingUITests(unittest.TestCase):
         self.server.shutdown()
         self.thread.join(timeout=3)
         self.server.server_close()
+
+    def test_cover_editor_upload_retitle_and_mobile_layout(self):
+        import io
+        import database
+        from PIL import Image
+        from playwright.sync_api import expect
+        self.lookup.stop(); self.single.stop()
+        with patch.object(database, 'DB_FILE', str(Path(self.tmp.name)/'videos.json')):
+            database._save_data([{'id':'one', 'stt':1, 'status':'completed', 'title':'Sống tử tế mỗi ngày', 'output_filename':'ready.mp4'}])
+            self.page.goto(f'http://127.0.0.1:{self.server.server_port}/videos/one')
+            expect(self.page.locator('#coverTitle')).to_be_enabled()
+            stream = io.BytesIO(); Image.new('RGB', (400,600), '#81B29A').save(stream, 'PNG')
+            self.page.locator('#coverTitle').fill('Bình yên mỗi ngày')
+            self.page.locator('#coverUpload').set_input_files({'name':'test.png','mimeType':'image/png','buffer':stream.getvalue()})
+            self.page.locator('#coverUploadSave').click()
+            expect(self.page.locator('#coverMessage')).to_contain_text('Đã lưu ảnh bìa')
+            expect(self.page.locator('#coverPortrait')).to_be_visible()
+            expect(self.page.locator('#coverLandscape')).not_to_be_visible()
+            self.page.wait_for_function('document.getElementById("coverPortrait").naturalWidth === 1080')
+            self.assertEqual(database.get_video('one')['cover']['title'], 'Bình yên mỗi ngày')
+            self.page.locator('#coverTitle').fill('Ngày mới tốt lành')
+            self.page.locator('#coverTitleSave').click()
+            expect(self.page.locator('#coverMessage')).to_contain_text('Đã lưu ảnh bìa')
+            self.assertEqual(database.get_video('one')['cover']['title'], 'Ngày mới tốt lành')
+            for width in (1440, 390):
+                self.page.set_viewport_size({'width':width, 'height':1000})
+                self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width)
+            self.assertEqual(self.errors, [])
 
     def test_schedule_real_ui_reuses_caption_and_creates_all_targets(self):
         from playwright.sync_api import expect
@@ -199,7 +226,7 @@ class PublishingUITests(unittest.TestCase):
         library_mock.return_value=[{'id':'queued','stt':1,'title':'Queued fixture','status':'completed'}]
         self.page.evaluate('fetchVideos()')
         expect(self.page.locator('#statCompleted')).to_have_text('1')
-        expect(self.page.locator('#creationActivity')).to_contain_text('Không có video đang xử lý')
+        expect(self.page.locator('#creationActivity')).to_contain_text('Vừa hoàn tất')
         self.page.route('**/api/download', lambda route: route.fulfill(status=200, content_type='application/json',
                           body=json.dumps({'status':'success','message':'Queued fixture only'})))
         self.page.locator('#inputUrl').fill('https://www.tiktok.com/@test/video/12345')
@@ -506,12 +533,18 @@ class PublishingUITests(unittest.TestCase):
         db.start(); self.addCleanup(db.stop)
         title='A very long caption with important video context. '*25
         database._save_data([{'id':'one','stt':1,'title':title,'status':'completed','video_filename':'original.mp4','output_filename':'ready.mp4'}])
+        from services.covers.images import ensure_cover
+        self.assertTrue(ensure_cover('one', root/'outputs/ready.mp4', root/'covers'))
         lookup=patch.object(studio,'get_all_videos',side_effect=database.get_all_videos)
         lookup.start(); self.addCleanup(lookup.stop)
         self.page.goto(f'http://127.0.0.1:{self.server.server_port}/')
         expect(self.page.get_by_role('columnheader',name='Xem Trước',exact=True)).to_have_count(0)
         expect(self.page.get_by_role('columnheader',name='Video gốc',exact=True)).to_be_visible()
         expect(self.page.get_by_role('columnheader',name='Thành phẩm',exact=True)).to_be_visible()
+        expect(self.page.get_by_role('columnheader',name='Ảnh bìa',exact=True)).to_be_visible()
+        expect(self.page.locator('.library-cover-thumb img')).to_be_visible()
+        self.page.wait_for_function('document.querySelector(".library-cover-thumb img").naturalWidth === 1080')
+        expect(self.page.locator('.library-cover-thumb')).to_have_attribute('href','/videos/one#coverForm')
         expect(self.page.locator('#videoTableBody').get_by_role('link',name='Chi tiết',exact=True)).to_have_count(0)
         link=self.page.locator('.library-title-link')
         expect(link).to_have_attribute('title',title)
@@ -638,6 +671,105 @@ class PublishingUITests(unittest.TestCase):
             expect(self.page.locator('#videoModal')).not_to_be_visible()
         self.assertEqual(self.errors,[])
 
+
+
+    def test_animation_settings_are_saved_inline_and_fit_mobile(self):
+        from playwright.sync_api import expect
+        from services.animation.settings import load_settings
+        self.page.route('**/api/videos', lambda route: route.fulfill(json={'videos': [
+            {'id': 'one', 'stt': 1, 'title': self.caption, 'video_filename': 'source.mp4', 'status': 'completed', 'log': 'Sẵn sàng'}]}))
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/animation')
+        expect(self.page.locator('.admin-nav a[href="/animation"]')).to_have_attribute('aria-current', 'page')
+        expect(self.page.locator('#animationModel')).to_be_enabled()
+        self.page.locator('.animation-settings summary').click()
+        self.page.locator('#animationModel').fill('custom-model')
+        # A render action saves dirty animation settings before sending its request.
+        self.page.route('**/api/animation/render/one', lambda route: route.fulfill(json={'status': 'success', 'message': 'Đã bắt đầu dựng bằng Antigravity.'}))
+        self.page.locator('#animationVideo').select_option('one')
+        self.page.locator('#animationRenderButton').click()
+        expect(self.page.locator('#animationRenderMessage')).to_contain_text('Dựng xong')
+        expect(self.page.locator('#animationSettingsMessage')).to_contain_text('Đã lưu')
+        self.assertEqual(load_settings(self.store)['model'], 'custom-model')
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        box = self.page.locator('.animation-settings').bounding_box()
+        for selector in ('#animationModel', '#animationSpeechModel', '#saveAnimationSettings'):
+            control = self.page.locator(selector).bounding_box()
+            self.assertGreaterEqual(control['x'], box['x'])
+            self.assertLessEqual(control['x'] + control['width'], box['x'] + box['width'] + 1)
+        self.assertEqual(self.errors, [])
+        requests = []
+        self.page.on('request', lambda req: requests.append(req.url))
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/create')
+        expect(self.page.locator('#inputUrl')).to_be_visible()
+        expect(self.page.locator('#animationSettingsForm')).to_have_count(0)
+        self.assertFalse(any('/api/animation/' in url for url in requests))
+
+
+    def test_ai_processing_and_error_are_prominent_and_replace_acceptance_message(self):
+        from playwright.sync_api import expect
+        video = {'id': 'one', 'stt': 1, 'title': 'Video test', 'video_filename': 'source.mp4', 'status': 'completed', 'log': 'Sẵn sàng'}
+        self.page.route('**/api/videos', lambda route: route.fulfill(json={'videos': [video]}))
+        def start(route):
+            video.update(status='processing', log='2/4: Antigravity đang phân cảnh...')
+            route.fulfill(json={'status': 'success', 'message': 'Đã bắt đầu dựng bằng Antigravity.'})
+        self.page.route('**/api/animation/render/one', start)
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/animation')
+        expect(self.page.locator('#animationModel')).to_be_enabled()
+        self.page.locator('#animationVideo').select_option('one')
+        self.page.locator('#animationRenderButton').click()
+        expect(self.page.locator('#animationStatus')).to_have_text('Đang chạy')
+        expect(self.page.locator('#animationRunState')).to_have_attribute('aria-busy', 'true')
+        expect(self.page.locator('#animationStageProgress')).to_have_attribute('value', '2')
+        expect(self.page.locator('#animationRenderButton')).to_be_disabled()
+        video.update(status='error', log='Không đủ quota Antigravity.')
+        expect(self.page.locator('#animationStatus')).to_have_text('Thất bại', timeout=7000)
+        expect(self.page.locator('#animationRunState')).to_have_attribute('aria-busy', 'false')
+        expect(self.page.locator('#animationRenderMessage')).to_contain_text('Không đủ quota')
+        expect(self.page.locator('#animationRenderMessage')).not_to_contain_text('Đã bắt đầu')
+        expect(self.page.locator('#animationRenderButton')).to_be_enabled()
+        self.page.locator('#animationRenderButton').click()
+        expect(self.page.locator('#animationStatus')).to_have_text('Đang chạy')
+        video.update(status='completed', log='Đã hoàn thành dựng hoạt hình AI.')
+        expect(self.page.locator('#animationStatus')).to_have_text('Đã hoàn thành', timeout=7000)
+        expect(self.page.locator('#animationRenderMessage')).to_contain_text('Dựng xong')
+        expect(self.page.locator('#animationStageProgress')).not_to_be_visible()
+        self.assertEqual(self.errors, [])
+
+    def test_create_activity_lists_all_running_videos_queue_stages_and_recent_completions(self):
+        from playwright.sync_api import expect
+        videos = [{'id': f'run-{i}', 'stt': i+1, 'title': f'Video đang dựng {i}', 'status': 'processing',
+                   'video_filename': 'source.mp4', 'log': '3/4: Đang thiết kế đồ họa...'} for i in range(12)]
+        videos += [{'id': 'queued', 'stt': 13, 'title': 'Chờ tới lượt', 'status': 'processing', 'log': 'Đang chuẩn bị dựng hàng loạt...'},
+                   {'id': 'waiting', 'stt': 14, 'title': 'Đã tải, chờ dựng', 'status': 'new'},
+                   {'id': 'old', 'stt': 15, 'title': 'Video cũ', 'status': 'completed'}]
+        lookup = patch.object(studio, 'get_all_videos', side_effect=lambda: videos)
+        lookup.start(); self.addCleanup(lookup.stop)
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/create')
+        expect(self.page.locator('.creation-task[data-state="running"]')).to_have_count(12)
+        expect(self.page.locator('#creationActivitySummary')).to_contain_text('12 đang chạy')
+        expect(self.page.locator('.creation-task[data-video-id="run-11"]')).to_contain_text('Video đang dựng 11')
+        expect(self.page.locator('.creation-task[data-video-id="run-0"] progress')).to_have_attribute('value', '3')
+        expect(self.page.locator('.creation-task[data-video-id="queued"]')).to_have_attribute('data-state', 'waiting')
+        expect(self.page.locator('.creation-task[data-video-id="old"]')).to_have_count(0)
+        videos[0].update(status='completed', log='Đã xuất video xong.')
+        self.page.evaluate('fetchVideos()')
+        expect(self.page.locator('.creation-task[data-video-id="run-0"]')).to_contain_text('Vừa hoàn tất')
+        expect(self.page.locator('.creation-task[data-state="running"]')).to_have_count(11)
+        self.page.evaluate('''() => { const now = Date.now; Date.now = () => now() + 61000; }''')
+        self.page.evaluate('fetchVideos()')
+        expect(self.page.locator('.creation-task[data-video-id="run-0"]')).to_have_count(0)
+        active_link = self.page.locator('.creation-task[data-video-id="run-1"] .library-title-link')
+        active_link.focus()
+        self.page.evaluate('fetchVideos()')
+        expect(active_link).to_be_focused()
+        self.page.route('**/api/videos', lambda route: route.fulfill(status=503, json={'status': 'error', 'message': 'Temporary disconnect'}), times=1)
+        self.page.evaluate('fetchVideos()')
+        expect(self.page.locator('#creationActivitySummary')).to_contain_text('Đang kết nối lại')
+        self.page.evaluate('fetchVideos()')
+        expect(self.page.locator('#creationActivitySummary')).to_contain_text('11 đang chạy')
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 391)
+        self.assertEqual(self.errors, [])
 
 
 if __name__ == '__main__':

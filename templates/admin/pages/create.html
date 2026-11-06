@@ -10,8 +10,8 @@
   {% include 'admin/partials/video-create-controls.html' %}
   {% include 'admin/partials/video-stats.html' %}
   <section class="panel">
-    <div class="section-heading"><h2>Tiến trình xử lý</h2><a href="/">Mở thư viện →</a></div>
-    <div id="creationActivity" aria-live="polite"><p class="hint">Đang tải tiến trình…</p></div>
+    <div class="section-heading"><div><h2>Tiến trình xử lý</h2><p id="creationActivitySummary" class="hint" role="status">Đang tải tiến trình…</p></div><a href="/">Mở thư viện →</a></div>
+    <div id="creationActivity" role="list" aria-label="Video đang xử lý và chờ dựng" aria-live="polite"><p class="hint">Đang tải tiến trình…</p></div>
   </section>
 </div>
 <script src="{{ url_for('static', filename='admin/js/library.js') }}" defer></script>

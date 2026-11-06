@@ -62,6 +62,13 @@ class Store:
             # Additive migration for schedules created by an earlier local build.
             if 'account_identity' not in {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}:
                 db.execute("ALTER TABLE tasks ADD COLUMN account_identity TEXT NOT NULL DEFAULT ''")
+            if 'cover_json' not in {row['name'] for row in db.execute('PRAGMA table_info(batches)')}:
+                db.execute("ALTER TABLE batches ADD COLUMN cover_json TEXT NOT NULL DEFAULT '{}'")
+            task_columns = {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}
+            for field in ('cover_state', 'cover_message'):
+                if field not in task_columns:
+                    default = 'none' if field == 'cover_state' else ''
+                    db.execute(f"ALTER TABLE tasks ADD COLUMN {field} TEXT NOT NULL DEFAULT '{default}'")
             db.executemany('INSERT OR IGNORE INTO accounts(platform) VALUES (?)', [(p,) for p in PLATFORMS])
 
     @contextmanager
@@ -79,7 +86,7 @@ class Store:
         finally:
             db.close()
 
-    def create_batch(self, video_id, media_path, caption, scheduled_at, made_for_kids, request_key):
+    def create_batch(self, video_id, media_path, caption, scheduled_at, made_for_kids, request_key, *, cover=None):
         path = Path(media_path).resolve(strict=True)
         snapshots = self.path.parent / 'media'
         snapshots.mkdir(parents=True, exist_ok=True)
@@ -99,7 +106,37 @@ class Store:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
-        payload = json.dumps([video_id, str(path), digest, caption, scheduled_at, made_for_kids], ensure_ascii=False)
+        frozen_cover = {}
+        if cover:
+            frozen_cover = {key: cover.get(key) for key in ('mode', 'title', 'timestamp', 'duration', 'aspect_ratio')}
+            for shape in ('portrait', 'landscape'):
+                source = Path(cover[shape+'_path']).resolve(strict=True)
+                if source.stat().st_size > 5*1024*1024 or media_hash(source) != cover[shape+'_hash']:
+                    raise ValueError('Ảnh bìa đã thay đổi trước khi lên lịch.')
+                temporary = None
+                try:
+                    with tempfile.NamedTemporaryFile(dir=snapshots, suffix='.tmp', delete=False) as stream:
+                        temporary = Path(stream.name)
+                        with source.open('rb') as input_stream:
+                            shutil.copyfileobj(input_stream, stream)
+                    image_hash = media_hash(temporary)
+                    if image_hash != cover[shape+'_hash']:
+                        raise ValueError('Ảnh bìa thay đổi trong lúc lưu lịch.')
+                    image_snapshot = snapshots/f'{image_hash}.jpg'
+                    if image_snapshot.exists():
+                        if media_hash(image_snapshot) != image_hash:
+                            raise ValueError('Bản ảnh bìa đã lưu bị thay đổi.')
+                    else:
+                        temporary.replace(image_snapshot)
+                    frozen_cover[shape+'_path'] = str(image_snapshot)
+                    frozen_cover[shape+'_hash'] = image_hash
+                finally:
+                    if temporary is not None:
+                        temporary.unlink(missing_ok=True)
+        request_payload = [video_id, str(path), digest, caption, scheduled_at, made_for_kids]
+        if frozen_cover:
+            request_payload.append(frozen_cover)
+        payload = json.dumps(request_payload, ensure_ascii=False, sort_keys=True)
         request_digest = hashlib.sha256(payload.encode()).hexdigest()
         with self.transaction() as db:
             existing = db.execute('SELECT id, request_digest FROM batches WHERE request_key=?', (request_key,)).fetchone()
@@ -118,12 +155,13 @@ class Store:
                         raise Conflict('Lịch tự động đã tắt hoặc thay đổi. Không tạo bài từ cấu hình cũ.')
                 batch_id = uuid.uuid4().hex
                 now = time.time()
-                db.execute('INSERT INTO batches VALUES (?,?,?,?,?,?,?,?,?,?)',
+                db.execute('INSERT INTO batches(id,request_key,request_digest,video_id,media_path,media_hash,caption,scheduled_at,made_for_kids,created_at,cover_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                            (batch_id, request_key, request_digest, video_id, str(snapshot), digest,
-                            caption, scheduled_at, int(made_for_kids), now))
+                            caption, scheduled_at, int(made_for_kids), now, json.dumps(frozen_cover, ensure_ascii=False)))
                 identities = {row['platform']: row['identity'] for row in db.execute("SELECT platform,identity FROM accounts WHERE state='connected'")}
                 db.executemany('INSERT INTO tasks(id,batch_id,platform,ready_at,updated_at,account_identity) VALUES (?,?,?,?,?,?)',
                                [(uuid.uuid4().hex, batch_id, p, scheduled_at, now, identities.get(p, '')) for p in PLATFORMS])
+                db.execute('UPDATE tasks SET cover_state=? WHERE batch_id=?', ('pending' if frozen_cover else 'automatic', batch_id))
         return self.get_batch(batch_id)
 
     def get_batch(self, batch_id):
@@ -208,7 +246,7 @@ class Store:
             for offset in range(0,len(ids),500):
                 chunk=ids[offset:offset+500]
                 placeholders=','.join('?' for _ in chunk)
-                rows.extend(db.execute(f'''SELECT b.video_id,t.platform,t.state,t.url,t.updated_at,b.created_at
+                rows.extend(db.execute(f'''SELECT b.video_id,t.platform,t.state,t.url,t.updated_at,b.created_at,t.cover_state,t.cover_message
                                FROM tasks t JOIN batches b ON b.id=t.batch_id
                                WHERE b.video_id IN ({placeholders})
                                ORDER BY b.created_at DESC,t.updated_at DESC''',chunk).fetchall())
@@ -219,7 +257,7 @@ class Store:
             current=platforms.get(row['platform'])
             if current is None or (row['state']=='published' and current['state']!='published'):
                 platforms[row['platform']]={'state':row['state'],'url':row['url'] if row['state']=='published' else '',
-                                            'updated_at':row['updated_at']}
+                                            'updated_at':row['updated_at'], 'cover_state':row['cover_state'], 'cover_message':row['cover_message']}
         return result
 
     def begin_login(self, platform, now=None):
@@ -275,7 +313,7 @@ class Store:
         with self.transaction() as db:
             db.execute("""UPDATE tasks SET state='needs_review',message='Đã lỡ lịch hơn 15 phút. Kiểm tra và chọn thử lại nếu muốn đăng bây giờ.',updated_at=?
                           WHERE state='queued' AND ready_at<?""", (now, now - MISFIRE_SECONDS))
-            rows = db.execute('''SELECT t.*,b.media_path,b.media_hash,b.caption,b.made_for_kids,a.state AS account_state,
+            rows = db.execute('''SELECT t.*,b.media_path,b.media_hash,b.caption,b.made_for_kids,b.cover_json,a.state AS account_state,
                                  a.lease_until,a.identity FROM tasks t JOIN batches b ON b.id=t.batch_id
                                  JOIN accounts a ON a.platform=t.platform
                                  WHERE t.state='queued' AND t.ready_at<=? ORDER BY t.ready_at,t.rowid''', (now,)).fetchall()
@@ -293,8 +331,16 @@ class Store:
                            ('task:' + row['id'], now + LEASE_SECONDS, row['platform']))
                 result = dict(row)
                 result.update(owner=owner, state='running', attempts=row['attempts'] + 1)
+                result['cover'] = json.loads(row['cover_json'])
                 return result
         return None
+
+    def set_cover_result(self, task_id, owner, state, message):
+        if state not in ('applied', 'frame', 'automatic', 'needs_review'):
+            raise ValueError('Trạng thái ảnh bìa không hợp lệ.')
+        with self.transaction() as db:
+            db.execute("UPDATE tasks SET cover_state=?,cover_message=? WHERE id=? AND owner=? AND state IN ('running','submitting')",
+                       (state, message[:500], task_id, owner))
 
     def mark_submitting(self, task_id, owner):
         with self.transaction() as db:
