@@ -35,6 +35,17 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(Conflict):
             self.store.create_batch('other', str(self.media), 'changed', 1000, False, 'request-one')
 
+    def test_targeted_batch_only_creates_requested_platform(self):
+        batch = self.store.create_batch('one', self.media, 'Caption', 1000, False, 'targeted-one', platforms=['tiktok'])
+        self.assertEqual([task['platform'] for task in batch['tasks']], ['tiktok'])
+        with self.assertRaises(Conflict):
+            self.store.create_batch('one', self.media, 'Caption', 1000, False, 'targeted-one', platforms=['facebook'])
+
+    def test_targeted_batch_rejects_empty_or_unknown_platforms(self):
+        for platforms in ([], ['unknown'], 'tiktok', ['tiktok','tiktok']):
+            with self.subTest(platforms=platforms), self.assertRaises(ValueError):
+                self.store.create_batch('one', self.media, 'Caption', 1000, False, 'bad-targets', platforms=platforms)
+
     def test_claim_is_atomic_across_connections(self):
         self.batch()
         self.connect('facebook')

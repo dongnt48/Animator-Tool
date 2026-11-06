@@ -9,6 +9,33 @@ from services.social.browser import UploadFlow, BrowserStepError
 
 @unittest.skipUnless(importlib.util.find_spec('playwright'), 'Install requirements and Playwright Chromium for browser tests')
 class BrowserFlowTests(unittest.TestCase):
+    def test_tiktok_onboarding_text_cannot_cancel_unrelated_verification(self):
+        self.page.set_content('''<p>Turn on automatic content checks?</p>
+            <div role="dialog"><h2>Verify identity</h2><input type="text"><button onclick="window.cancelledVerification=true">Cancel</button></div>''')
+        UploadFlow(self.page).dismiss_tiktok_onboarding()
+        self.assertIsNone(self.page.evaluate('window.cancelledVerification'))
+
+    def test_tiktok_closes_only_known_onboarding_without_enabling_checks(self):
+        self.page.set_content('''<input type="file"><div role="textbox" contenteditable="true">filename.mp4</div>
+            <section><h2>Turn on automatic content checks?</h2><button onclick="this.parentNode.remove()">Cancel</button><button onclick="window.enabledChecks=true">Turn on</button></section>
+            <section><h3>New editing features added</h3><button onclick="this.parentNode.remove()">Got it</button></section><button>Post</button>''')
+        flow = UploadFlow(self.page, timeout=1)
+        flow.prepare('tiktok', str(self.media), 'Caption đúng', False)
+        self.assertEqual(self.page.get_by_role('textbox').inner_text(), 'Caption đúng')
+        self.assertEqual(self.page.get_by_text('Turn on automatic content checks?', exact=True).count(), 0)
+        self.assertEqual(self.page.get_by_text('New editing features added', exact=True).count(), 0)
+        self.assertIsNone(self.page.evaluate('window.enabledChecks'))
+
+    def test_tiktok_rechecks_caption_before_publish_after_filename_autofill(self):
+        self.page.set_content('''<input type="file"><div role="textbox" contenteditable="true"></div>
+            <button onclick="window.postedCaption=document.querySelector('[role=textbox]').innerText;const receipt=document.createElement('div');receipt.setAttribute('role','status');receipt.innerHTML='Your video has been published <a href=https://www.tiktok.com/@someone/video/12345>View</a>';document.body.append(receipt)">Post</button>''')
+        flow = UploadFlow(self.page, timeout=1)
+        pattern = flow.prepare('tiktok', str(self.media), 'Caption đúng', False)
+        self.page.get_by_role('textbox').fill('unexpected-filename.mp4 Caption đúng')
+        receipt = flow.submit('tiktok', pattern, lambda: None)
+        self.assertEqual(self.page.evaluate('window.postedCaption'), 'Caption đúng')
+        self.assertTrue(receipt.url.endswith('/12345'))
+
     def test_youtube_vertical_video_uses_portrait_cover_and_horizontal_uses_landscape(self):
         from PIL import Image
         from services.social.cover_flow import CoverFlow

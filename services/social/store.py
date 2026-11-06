@@ -86,7 +86,15 @@ class Store:
         finally:
             db.close()
 
-    def create_batch(self, video_id, media_path, caption, scheduled_at, made_for_kids, request_key, *, cover=None):
+    def create_batch(self, video_id, media_path, caption, scheduled_at, made_for_kids, request_key, *, cover=None, platforms=None):
+        if platforms is None:
+            targets = PLATFORMS
+        else:
+            if (not isinstance(platforms, (list, tuple)) or not platforms
+                    or any(platform not in PLATFORMS for platform in platforms)
+                    or len(set(platforms)) != len(platforms)):
+                raise ValueError('Chọn các nền tảng hợp lệ, không trùng nhau.')
+            targets = tuple(platform for platform in PLATFORMS if platform in platforms)
         path = Path(media_path).resolve(strict=True)
         snapshots = self.path.parent / 'media'
         snapshots.mkdir(parents=True, exist_ok=True)
@@ -136,6 +144,8 @@ class Store:
         request_payload = [video_id, str(path), digest, caption, scheduled_at, made_for_kids]
         if frozen_cover:
             request_payload.append(frozen_cover)
+        if targets != PLATFORMS:
+            request_payload.append({'platforms': targets})
         payload = json.dumps(request_payload, ensure_ascii=False, sort_keys=True)
         request_digest = hashlib.sha256(payload.encode()).hexdigest()
         with self.transaction() as db:
@@ -160,7 +170,7 @@ class Store:
                             caption, scheduled_at, int(made_for_kids), now, json.dumps(frozen_cover, ensure_ascii=False)))
                 identities = {row['platform']: row['identity'] for row in db.execute("SELECT platform,identity FROM accounts WHERE state='connected'")}
                 db.executemany('INSERT INTO tasks(id,batch_id,platform,ready_at,updated_at,account_identity) VALUES (?,?,?,?,?,?)',
-                               [(uuid.uuid4().hex, batch_id, p, scheduled_at, now, identities.get(p, '')) for p in PLATFORMS])
+                               [(uuid.uuid4().hex, batch_id, p, scheduled_at, now, identities.get(p, '')) for p in targets])
                 db.execute('UPDATE tasks SET cover_state=? WHERE batch_id=?', ('pending' if frozen_cover else 'automatic', batch_id))
         return self.get_batch(batch_id)
 

@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlsplit
+from .profiles import launch_profile, profile_path
 
 LOG = logging.getLogger(__name__)
 HOME = {
@@ -114,11 +115,50 @@ class UploadFlow:
     def wait(self, lookup, description, timeout=None):
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
         while time.monotonic() < deadline:
+            if getattr(self, 'platform', None) == 'tiktok':
+                self.dismiss_tiktok_onboarding()
             item = lookup()
             if item is not None:
                 return item
             self.page.wait_for_timeout(250)
         raise BrowserStepError(f'Không tìm thấy {description}. Giao diện có thể đã thay đổi hoặc yêu cầu xác minh.')
+
+    def dismiss_tiktok_onboarding(self):
+        # Optional first-use tips only. Never dismiss verification or violation dialogs.
+        for title, button_text in [('Turn on automatic content checks?', 'Cancel'),
+                                   ('New editing features added', 'Got it')]:
+            containers = self.page.locator('[role="dialog"],dialog,[aria-modal="true"],[role="tooltip"],'
+                                           '[data-tt*="Popover"],[data-tt*="Modal"],section')
+            for scope in containers.all():
+                if not scope.is_visible():
+                    continue
+                headings = scope.get_by_text(title, exact=True)
+                if not any(heading.is_visible() for heading in headings.all()):
+                    continue
+                if scope.locator('[contenteditable="true"],textarea,input:not([type="checkbox"])').count():
+                    continue
+                if button_text == 'Cancel' and not scope.get_by_role('button', name='Turn on', exact=True).count():
+                    continue
+                button = scope.get_by_role('button', name=button_text, exact=True)
+                if button.count() == 1 and button.is_visible() and button.is_enabled():
+                    button.click()
+                    break
+
+    def verify_tiktok_caption(self):
+        expected = getattr(self, 'expected_tiktok_caption', None)
+        if expected is None:
+            return
+        field = self.field(['[data-e2e="caption_container"] [contenteditable="true"]',
+                            '[contenteditable="true"][role="textbox"]', '[contenteditable="true"]'])
+        normalize = lambda text: text.replace('\u00a0', ' ').replace('\r\n', '\n').strip()
+        for _ in range(3):
+            self.dismiss_tiktok_onboarding()
+            if normalize(field.inner_text()) != normalize(expected):
+                field.fill(expected)
+            self.page.wait_for_timeout(350)
+            if normalize(field.inner_text()) == normalize(expected):
+                return
+        raise BrowserStepError('Caption trên TikTok chưa khớp nội dung đã lưu. Dừng trước khi đăng.')
 
     def visible_button(self, pattern):
         name = re.compile(pattern, re.I)
@@ -187,6 +227,7 @@ class UploadFlow:
         raise BrowserStepError('Chưa nhận diện được bước tiếp theo hoặc nút Đăng Facebook Reels. Hãy kiểm tra ảnh chụp lỗi.')
 
     def prepare(self, platform, media_path, caption, made_for_kids, cover=None):
+        self.platform = platform
         from .cover_flow import CoverFlow
         self.cover_flow = CoverFlow(self.page, cover)
         if platform == 'instagram':
@@ -208,9 +249,11 @@ class UploadFlow:
             return r'^(Post|Đăng)$'
         if platform == 'tiktok':
             self.upload_file(media_path)
+            self.expected_tiktok_caption = caption
             self.field(['[data-e2e="caption_container"] [contenteditable="true"]',
                         '[contenteditable="true"][role="textbox"]', '[contenteditable="true"]']).fill(caption)
             self.cover_flow.apply(platform)
+            self.verify_tiktok_caption()
             return r'^(Post|Đăng)$'
         if platform == 'youtube':
             if type(made_for_kids) is not bool:
@@ -274,6 +317,8 @@ class UploadFlow:
         # Only the completion UI can identify THIS upload. Feed/recommendation links are not receipts.
         old_receipts = self.successful_receipts(platform, success)
         final_button = self.button(button_pattern)
+        if platform == 'tiktok':
+            self.verify_tiktok_caption()
         before_publish()  # Durable DB checkpoint BEFORE any click that could publish.
         final_button.click()
         deadline = time.monotonic() + self.timeout
@@ -301,12 +346,11 @@ class BrowserPublisher:
     def __call__(self, task, before_publish):
         from playwright.sync_api import sync_playwright
         platform = task['platform']
-        profile = self.data_dir / 'profiles' / platform
+        profile = profile_path(self.data_dir, platform)
         if not profile.is_dir():
             raise LoginRequired('Chưa có hồ sơ trình duyệt. Hãy kết nối tài khoản.')
         with sync_playwright() as playwright:
-            context = playwright.chromium.launch_persistent_context(str(profile), headless=False, locale='en-US',
-                                                                      viewport={'width': 1360, 'height': 900})
+            context = launch_profile(playwright, self.data_dir, platform)
             try:
                 context.set_default_timeout(20000)
                 page = context.pages[0] if context.pages else context.new_page()

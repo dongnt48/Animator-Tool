@@ -4,6 +4,7 @@ import time
 from .store import Store, PLATFORMS
 from .worker import data_dir
 from .browser import HOME, account_identity
+from .profiles import launch_profile
 
 
 def main():
@@ -17,10 +18,7 @@ def main():
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
-            profile = root / 'profiles' / platform
-            profile.mkdir(parents=True, exist_ok=True)
-            context = playwright.chromium.launch_persistent_context(str(profile), headless=False, locale='en-US',
-                                                                      viewport={'width': 1360, 'height': 900})
+            context = launch_profile(playwright, root, platform)
             try:
                 page = context.pages[0] if context.pages else context.new_page()
                 page.goto(HOME[platform], wait_until='domcontentloaded', timeout=60000)

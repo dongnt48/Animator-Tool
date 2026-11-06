@@ -23,7 +23,7 @@ let batchesSignature = "";
       const active = batch.tasks.some(task => ['running','submitting'].includes(task.state));
       const cancelled = batch.tasks.every(task => task.state === 'cancelled');
       const status = badge(failures ? 'needs_review' : published === 5 ? 'published' : active ? 'running' : 'queued');
-      status.textContent = cancelled ? 'Đã hủy' : failures ? `${failures} cần xử lý` : `${published}/5 đã đăng`;
+      status.textContent = cancelled ? 'Đã hủy' : failures ? `${failures} cần xử lý` : `${published}/${batch.tasks.length} đã đăng`;
       if (cancelled) status.dataset.state = 'cancelled';
       heading.append(title, status);
       card.open = previousOpen.has(card.id) ? previousOpen.get(card.id) : failures > 0 || active;

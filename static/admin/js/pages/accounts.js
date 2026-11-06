@@ -10,6 +10,7 @@ let accountsSignature = "";
     for (const account of accounts) {
       const card = element('article', undefined, 'account');
       card.append(element('h3', names[account.platform]), badge(account.state));
+      if (account.platform === 'tiktok') card.append(element('p', 'Google Chrome · hồ sơ riêng. Kết nối lại và lưu phiên sau khi chuyển trình duyệt.', 'hint'));
       if (account.message && account.state === 'needs_login') card.append(element('p', account.message));
       const controls = element('div', undefined, 'account-actions');
       const pending = ['connecting','save_requested','cancel_requested'].includes(account.state) && account.lease_until * 1000 > Date.now();
