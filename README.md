@@ -2,7 +2,53 @@
 
 Hệ thống quản lý, tải và tự động chuyển thể video TikTok sang phong cách **Cozy 2D Animated Storytelling with Kinetic Typography**. Dựng video bằng Remotion trên máy cá nhân; tải video, nhận diện giọng nói qua Google và đăng mạng xã hội cần Internet. Các luồng Playwright không dùng API key của nền tảng.
 
+## Hoạt hình theo lời thoại bằng Antigravity
+
+Mở tab riêng **Hoạt hình AI** (`/animation`), chọn video đã tải trong thư viện rồi bấm **Dựng bằng Antigravity**. Tab này có cấu hình model, model nhận diện, ảnh thu nhỏ và tiến trình của video đã chọn. Cấu hình được chốt khi bấm dựng; kết quả có thể xem từ liên kết chi tiết hoặc trong thư viện. File AI có tiền tố `antigravity_`, không ghi đè file dựng cũ.
+
+Trạng thái của video hiện rõ ngay dưới tiêu đề: **Đang chạy** có vòng xoay và giai đoạn 1/4–4/4 (âm thanh, nhận diện/phân cảnh, dựng cảnh, xuất video); **Thất bại** màu đỏ kèm lỗi; **Đã hoàn thành** màu xanh. Đây là giai đoạn xử lý, không phải phần trăm render thực tế. Trang cập nhật mỗi 2,5 giây; thông báo đã nhận yêu cầu tự thay bằng kết quả cuối, không giữ thông báo thành công khi tác vụ đã lỗi. Các phong cách cũ `semantic_dark` và `ai_storyboard` được ánh xạ riêng cho AI sang `midnight` và `cozy`, giữ cấu hình tạo video cũ trong thư viện. Cấu hình không hỗ trợ bị từ chối trước khi chạy AI.
+
+**Tạo video** và các nút **Tải & Dựng Ngay**, **Dựng Toàn Bộ**, **Dựng Lại** trong luồng cũ luôn dùng bộ phân tích ban đầu, không đọc cấu hình AI, không gọi Antigravity. Chỉ endpoint riêng `/api/animation/render/<video_id>` mới bật AI. Không có bộ chọn chế độ AI trong màn tạo hoặc thư viện cũ.
+
+Cài thêm một lần trên Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/setup-animation.ps1
+```
+
+Cài CLI chính thức theo [hướng dẫn Antigravity](https://antigravity.google/docs/getting-started?tab=cli), mở terminal chạy `agy` và đăng nhập tài khoản Google dùng gói/quota mong muốn. Không nhập API key XAH vào phần này. CLI hỗ trợ [chạy tự động và kết quả JSON](https://antigravity.google/docs/cli/headless/). Kiểm tra trạng thái trên giao diện chỉ xác nhận CLI và thư viện nhận diện đã cài, không kiểm tra đăng nhập/quota. Trong **Tùy chỉnh model**, để trống dùng model mặc định tài khoản; `agy models` liệt kê các model khả dụng. Model caption được cấu hình riêng.
+
+Nhận diện tiếng Việt bằng faster-whisper trên CPU/int8, chạy trong `.venv-speech` Python 3.13 để không thay đổi môi trường Python hiện tại của Studio. Mặc định model `small`; lần đầu cần Internet tải model, sau đó nhận diện cục bộ. Có thể đổi model trong giao diện. Mốc từng từ do bộ nhận diện ước lượng theo âm thanh; độ chính xác phụ thuộc giọng nói, nhạc nền và model, không phải bảo đảm khớp tuyệt đối từng âm tiết.
+
+Gửi **toàn bộ lời thoại** cho Antigravity một lần để chọn cảm xúc, tình huống minh họa và điểm bắt đầu hành động. Python giữ nguyên chữ và mốc thời gian, không để AI bịa timestamp. Giới hạn 300 ký tự của viết caption **không áp dụng** cho hoạt hình. Bộ dựng AI có mười cảnh có chuyển động: hai người rời nhau, nâng đỡ nhau, buông gánh nặng, chọn ngã rẽ, tưới cây, bước đi trên đường, trò chuyện, soi gương/suy ngẫm, vượt khó/ăn mừng và bình yên. Tay/chân nhân vật có khớp chuyển động, có nhân vật thứ hai và đạo cụ theo tình huống. Các đoạn phụ đề cùng tình huống tiếp tục dùng cùng cảnh và giữ hành động đã bắt đầu; không reset mỗi câu. Miệng và chữ chỉ nhấn theo mốc nói. Chưa có tạo ảnh/video AI tùy ý hoặc lip-sync theo âm vị; đây là thư viện cảnh minh họa bằng SVG/Remotion.
+
+Cache nhận diện và kịch bản ở `data/animation/` (không đưa lên Git), theo nội dung file, model nhận diện và model Antigravity đã chọn. Dựng lại cùng cấu hình dùng cache, đổi tỉ lệ/phong cách/nhân vật không gọi AI lại. Lỗi đăng nhập, quota hoặc kịch bản thiếu cảnh sẽ dừng rõ ràng, không tự gọi lại/XAH; file thành phẩm cũ giữ nguyên cho đến khi render mới hoàn tất. Antigravity tiêu hao quota theo [gói tài khoản và thiết lập credit](https://antigravity.google/docs/plans); render MP4 chạy trên máy.
+
+Remotion cho AI nằm trong `remotion/`, được theo dõi cùng repo. Luồng dựng cũ tiếp tục dùng `../remotion-project` nếu tồn tại, nếu không sẽ dùng composition tương thích trong repo. Project Remotion bên ngoài được giữ nguyên. Có thể chỉ định đường dẫn CLI qua biến môi trường `ANTIGRAVITY_CLI`, hoặc Python nhận diện qua `ANIMATION_PYTHON` nếu cài ở vị trí khác.
+
+Kịch bản v1 chỉ chọn cử động nhẹ sẽ được phân tích lại một lần khi dựng AI sau bản cập nhật cảnh minh họa. Bộ nhớ lời thoại vẫn dùng lại; các lần sau giữ nguyên kịch bản v2 đã lưu.
+
+Kiểm tra bổ sung (fixture không gọi AI):
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest tests.test_animation -v
+npm.cmd --prefix remotion run check
+.\.venv\Scripts\python.exe tools/check-animation-render.py
+node tests/check_story_motion.cjs
+.\.venv\Scripts\python.exe tools/check-story-scenes.py
+```
+
+Video kiểm tra ghi vào `data/animation/check.mp4`; bản minh họa mười cảnh không có giọng nói ở `data/animation/story-scenes.mp4`.
+
 ## Lên lịch đăng mạng xã hội bằng Playwright
+
+### Xóa video và kiểm tra trùng
+
+Nút xóa trong thư viện **xóa mềm record, xóa cứng media**: lưu `deleted_at`, ID nguồn TikTok và SHA256 file gốc, giữ ID/STT/caption/lịch sử; ẩn record khỏi thư viện, dựng video, viết caption và nguồn bài tự động. File gốc, bản render đang dùng, các biến thể render thuộc record và thumbnail/cached thumbnail được xóa trên ổ đĩa. File còn được record đang hoạt động khác dùng chung sẽ được giữ cho record đó. Không xóa video đang tải/dựng; nếu file đang bị khóa, record vẫn được giữ và API trả lỗi dọn file để có thể thử lại thao tác xóa theo ID.
+
+Tải lại kiểm tra cả record đang có và record đã xóa theo ID TikTok/URL bỏ tham số chia sẻ; sau khi tải một file mới còn so SHA256 để nhận ra nguồn qua link khác. Link trực tiếp trùng trả HTTP 409 trước khi chạy nền; quét kênh bỏ qua video đã có hoặc đã xóa. Không so theo tiêu đề/caption. Link rút gọn chưa từng gặp có thể cần tải về trước để nhận diện ID/hash; file tạm trùng được xóa, không tạo lại video trong thư viện. `GET /api/videos/check-duplicate?url=...` trả ID record và cờ đã xóa mà không tải media.
+
+Record lưu trong `data/videos.json`; truy vấn nội bộ `get_all_videos(include_deleted=True)` hoặc `get_video(id, include_deleted=True)` có thể xem lịch sử đã xóa. Không có thao tác khôi phục media đã xóa cứng. Thay đổi áp dụng cho những lần xóa từ bản này; record từng bị xóa cứng trước đây không tự được phục hồi. Các lượt đăng đã lên lịch trước đó dùng bản sao riêng và lịch sử đăng được giữ nguyên.
 
 Hỗ trợ luồng giao diện cho **Facebook Reels trên hồ sơ cá nhân, Instagram Reels, Threads, TikTok và YouTube**. Một lịch tạo năm tác vụ riêng, dùng caption hiện có (`caption`, nếu có; mặc định là `title` kèm hashtag). Không cần nhập lại caption. Các adapter chưa được kiểm chứng trên tài khoản thật của bạn; giao diện nền tảng có thể cần điều chỉnh selector sau khi thử.
 
@@ -49,7 +95,7 @@ SQLite, hồ sơ trình duyệt, bản sao MP4, log và ảnh chụp lỗi nằm
 
 Chỉ một worker được hoạt động cho cùng thư mục dữ liệu; khóa hệ điều hành ngăn tiến trình thứ hai xử lý trùng. Để chạy Studio mà không tự mở worker, đặt `SOCIAL_AUTOSTART_WORKER=0` trước khi chạy `app.py`. `SOCIAL_DATA_DIR` cho phép chỉ định thư mục dữ liệu riêng; Studio, login và worker phải dùng chung thư mục này. Web chỉ nghe `127.0.0.1` và nhận các thao tác từ cùng nguồn localhost.
 
-Engine render vẫn cần dự án Node/Remotion tại `../remotion-project` cùng dependency của nó; phần này nằm ngoài repo hiện tại. Không cần engine để mở trang lịch và quản lý các video đã dựng sẵn.
+Engine render nằm tại `remotion/` trong repo. Chạy `npm.cmd --prefix remotion ci` hoặc script cài hoạt hình bên trên để cài dependency. Không cần engine để mở trang lịch và quản lý các video đã dựng sẵn.
 
 ### Kiểm tra
 
@@ -78,6 +124,8 @@ Trong **Thư viện**, tích chọn ngay trong bảng (hoặc chọn tất cả)
 Nút **Lên lịch đăng** của từng dòng mở hộp chọn giờ ngay trong Thư viện: xem caption sẽ đăng, chọn thời gian, phân loại nội dung YouTube và xác nhận đăng cả 5 nền tảng. Bấm **Lưu lịch đăng** để tạo lịch mà không chuyển màn. Nếu mất phản hồi, thử lại trong cùng hộp với dữ liệu không đổi dùng cùng mã yêu cầu để tránh tạo lịch trùng. Màn Đặt lịch riêng cũ vẫn hoạt động.
 
 Hai màn riêng trong thanh bên: **Tạo video** (`/create`) gồm tải/dựng, cấu hình mặc định, thống kê và tiến trình xử lý; **Thư viện** (`/`) gồm bảng quản lý video, viết caption và trạng thái đăng. Màn tạo không tải phần cấu hình caption; thư viện không có ô nhập link/tải video. Các nút dựng lại từng video vẫn có trong thư viện.
+
+Trong **Tạo video**, mục **Tiến trình xử lý** liệt kê toàn bộ video đang tải/dựng, tiếp theo là các video chờ dựng/chờ đến lượt. Mỗi dòng có thumbnail, tiêu đề rút gọn, trạng thái và log/bước 1/4–4/4. Đây là giai đoạn xử lý, không phải phần trăm render thực tế. Danh sách cập nhật mỗi 2,5 giây; video vừa hoàn tất được giữ trên màn hình 60 giây khi đang theo dõi. Các video hoàn tất từ trước không chiếm danh sách, và các dòng đang chạy không bị giới hạn 8 mục như bản cũ. Có thể cuộn danh sách và bấm tiêu đề/thumbnail để xem record. Khi mất kết nối, phần tổng hợp thông báo chưa cập nhật thay vì giả định trạng thái vẫn mới.
 
 Trong bảng thư viện, tiêu đề chỉ hiện tối đa hai dòng với dấu “…”, rê chuột để đọc đầy đủ. Cột **Video gốc** và **Thành phẩm** có thumbnail lấy từ đúng file video trên máy; bấm ảnh để mở trình phát. Không còn cột Xem trước hoặc nút Chi tiết; bấm vào nội dung dòng (hoặc Enter khi dòng được chọn) để mở record. Các ô chọn, dropdown, nút và liên kết vẫn thao tác riêng. Thumbnail được tạo và lưu đệm trong `data/social/thumbnails`, tự tạo lại khi file nguồn thay đổi.
 
@@ -147,3 +195,13 @@ Sau đó truy cập: `http://localhost:5000`
 ## 📁 Cấu Trúc Dự Án
 
 Xem [cấu trúc thư mục hiện tại](docs/PROJECT_STRUCTURE.md).
+
+## Ảnh bìa khi đăng bài
+
+Trong **Thư viện**, bấm vào video → **Ảnh bìa đăng bài**. Chọn mốc khung hình hoặc tải JPEG/PNG/WebP (tối đa 5 MiB, 20 triệu điểm ảnh), sửa tiêu đề và lưu. Có thể căn vùng cắt ảnh trong tùy chỉnh; hệ thống tạo cả bản dọc 1080×1920 và ngang 1280×720. Để trống tiêu đề nếu muốn giữ ảnh không có chữ. Tạo bìa chạy tại máy, không gọi AI.
+
+Video dựng mới được thử tạo bìa mặc định; video cũ chưa có bìa được thử tạo khi lên lịch. Mỗi lịch lưu bản sao video, caption và ảnh bìa riêng: thay ảnh trong thư viện không đổi lịch đã tạo. Xóa video trong thư viện xóa các ảnh bìa của record nhưng giữ bản sao thuộc lịch đăng.
+
+Ảnh bìa tự tạo trước khi báo dựng hoàn thành và hiện ở cột **Ảnh bìa** trong thư viện. Nếu tạo ảnh thất bại, video vẫn được giữ và nhật ký báo rõ. YouTube Shorts dùng bản dọc; bản ngang chỉ hiện trong chi tiết video ngang. Khi đổi tỷ lệ rồi dựng lại, lịch mới chọn bản bìa theo tỷ lệ video hiện tại; giữ nguyên ảnh và chữ đã chỉnh.
+
+**Kết quả đăng** và chi tiết video có trạng thái bìa riêng: đã xác minh ảnh mới trong xem trước, đã chọn khung video, dùng ảnh tự động hoặc cần kiểm tra. Playwright chỉ dùng chức năng bìa mà giao diện tài khoản thực tế cung cấp; không bảo đảm mọi tài khoản/nền tảng cho tải ảnh riêng. Threads hiện dùng xem trước tự động. Trạng thái bìa là xác minh trước khi đăng, chưa xác nhận ảnh cuối cùng trên bài đã xuất bản. Không chèn ảnh bìa vào đầu video.
