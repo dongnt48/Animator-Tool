@@ -196,6 +196,19 @@ Sau đó truy cập: `http://localhost:5000`
 
 Xem [cấu trúc thư mục hiện tại](docs/PROJECT_STRUCTURE.md).
 
+## Trình duyệt TikTok
+
+TikTok đăng nhập và đăng tự động bằng Google Chrome chính thức đã cài trên máy, dùng chung hồ sơ riêng `data/social/profiles/tiktok-chrome/`. Sau khi chuyển từ Chromium, vào **Tài khoản → TikTok → Kết nối lại**, đăng nhập thủ công rồi **Lưu phiên**. Hồ sơ Chromium cũ được giữ nguyên; không dùng hồ sơ Chrome cá nhân. Các nền tảng khác tiếp tục dùng Chromium như trước. Cần giữ Chrome được cập nhật tương thích Playwright. Nếu TikTok vẫn yêu cầu xác minh hoặc từ chối phiên, hoàn tất theo hướng dẫn của TikTok; đổi Chrome không bảo đảm hết hạn chế đăng nhập.
+
+Nếu chỉ đăng nhập được bằng Chrome mở độc lập, đóng cửa sổ TikTok do Studio mở rồi chạy lệnh dưới từ thư mục dự án (ví dụ Chrome cài ở Program Files). Đăng nhập thủ công, đóng Chrome, sau đó quay lại Studio **Kết nối → Lưu phiên** để dùng lại cùng hồ sơ. Máy khác cần đăng nhập lại; không copy hồ sơ đăng nhập hoặc đưa cookie lên Git.
+
+```powershell
+$tiktokProfile = Join-Path (Get-Location).Path 'data\social\profiles\tiktok-chrome'
+& "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" "--user-data-dir=$tiktokProfile" 'https://www.tiktok.com/login'
+```
+
+Bộ đăng xử lý hai hộp giới thiệu TikTok đã nhận diện và đối chiếu caption trước khi bấm đăng để tránh tên file tự chèn vào mô tả. Nếu TikTok chuyển thẳng sang danh sách bài nhưng app chưa lấy được link, tác vụ chuyển **Cần kiểm tra**. Mở TikTok Studio xác minh bài và bổ sung link; không thử lại khi chưa biết bài đã được đăng hay chưa. Lượt thử riêng nền tảng có thể dùng `Store.create_batch(..., platforms=['tiktok'])`; giao diện lịch và lịch tự động mặc định vẫn chọn cả năm nền tảng.
+
 ## Ảnh bìa khi đăng bài
 
 Trong **Thư viện**, bấm vào video → **Ảnh bìa đăng bài**. Chọn mốc khung hình hoặc tải JPEG/PNG/WebP (tối đa 5 MiB, 20 triệu điểm ảnh), sửa tiêu đề và lưu. Có thể căn vùng cắt ảnh trong tùy chỉnh; hệ thống tạo cả bản dọc 1080×1920 và ngang 1280×720. Để trống tiêu đề nếu muốn giữ ảnh không có chữ. Tạo bìa chạy tại máy, không gọi AI.
