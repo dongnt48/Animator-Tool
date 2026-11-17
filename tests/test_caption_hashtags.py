@@ -41,8 +41,8 @@ class CaptionHashtagTests(unittest.TestCase):
         with patch('services.captions.routes.rewrite_captions',return_value={'one':{'caption':'New message. #AIinvented #legacy'}}):
             response=self.client.post('/api/captions/rewrite',json={'video_ids':['one']})
         self.assertEqual(response.status_code,200)
-        self.assertEqual(response.json['results'][0]['caption'],'New message.\n\n#MyTag #MyBrand')
-        self.assertEqual(database.get_video('one')['caption'],'New message.\n\n#MyTag #MyBrand')
+        self.assertEqual(response.json['results'][0]['caption'],'New message.\n#MyTag #MyBrand')
+        self.assertEqual(database.get_video('one')['caption'],'New message.\n#MyTag #MyBrand')
 
     def test_empty_settings_make_new_caption_tag_free_and_explicit_save_preserves_manual_tags(self):
         with patch('services.captions.routes.rewrite_captions',return_value={'one':{'caption':'Message #unwanted'}}):
@@ -55,7 +55,7 @@ class CaptionHashtagTests(unittest.TestCase):
         self.client.post('/api/captions/settings',json={'hashtags':'#NewSettings'})
         with patch('services.captions.routes.rewrite_captions',return_value={'one':{'caption':'Message'}}):
             response=self.client.post('/api/captions/rewrite',json={'video_ids':['one'],'hashtags':'#RunSnapshot'})
-        self.assertEqual(response.json['results'][0]['caption'],'Message\n\n#RunSnapshot')
+        self.assertEqual(response.json['results'][0]['caption'],'Message\n#RunSnapshot')
         self.assertEqual(self.client.get('/api/captions/settings').json['hashtags'],'#NewSettings')
 
     def test_hashtag_only_result_fails_without_hiding_other_results(self):

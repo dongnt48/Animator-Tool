@@ -17,12 +17,15 @@ let activeRowId = null;
 const chunks = items => Array.from({length:Math.ceil(items.length/100)},(_,i) => items.slice(i*100,(i+1)*100));
 const preselected = new URLSearchParams(location.search).get('video');
 const libraryTable = $('videoTableBody');
+const bulkDeleteButton = $('deleteSelectedVideos');
 const wasRewritten = video => video.caption_rewritten ?? Boolean(video.caption_ai || video.caption_ai_saved_at || video.caption);
 function eligibleIds() {
   return videos.filter(video => selected.has(video.id) && ($('captionRewriteMode').value === 'all' || !wasRewritten(video))).map(video => video.id);
 }
 
 function updateSelection() {
+  if (bulkDeleteButton) bulkDeleteButton.disabled = busy || selected.size === 0;
+  $('bulkDeleteFeedback')?.querySelectorAll('button').forEach(button => {button.disabled = busy;});
   $('captionSelectedCount').textContent = `${selected.size} đã chọn`;
   const eligible = eligibleIds();
   $('captionEligibleCount').textContent = `${eligible.length} sẽ viết`;
@@ -44,6 +47,49 @@ function updateSelection() {
     button.setAttribute('aria-busy',String(busy && activeRowId === button.dataset.captionRewrite));
   });
 }
+async function runBulkDelete(ids = [...selected]) {
+  if (busy || !ids.length) return;
+  if (!confirm(`Xóa ${ids.length} record đã chọn? File video gốc, bản dựng và ảnh bìa tương ứng sẽ bị xóa. Record vẫn được giữ để kiểm tra trùng; video đang xử lý sẽ được bỏ qua.`)) return;
+  const labels = new Map(videos.map(video => [video.id, `#${video.stt ?? video.id} ${video.title || ''}`]));
+  const feedback = $('bulkDeleteFeedback');
+  const failures = [];
+  let deleted = 0;
+  busy = true; updateSelection();
+  feedback.replaceChildren();
+  try {
+    for (let index = 0; index < ids.length; index++) {
+      const id = ids[index];
+      bulkDeleteButton.textContent = `Đang xóa ${index + 1}/${ids.length}…`;
+      feedback.textContent = `Đang xóa ${index + 1}/${ids.length} record…`;
+      try {
+        const response = await fetch(`/api/video/${encodeURIComponent(id)}`, {method:'DELETE'});
+        let data;
+        try {data = await response.json();}
+        catch {throw new Error('Không đọc được phản hồi khi xóa record.');}
+        if (!response.ok || data.status !== 'success') throw new Error(data.message || 'Không xóa được record.');
+        deleted++; selected.delete(id); drafts.delete(id);
+      } catch (error) {
+        failures.push({id, label:labels.get(id) || id, message:error.message});
+      }
+    }
+  } finally {
+    try {await window.fetchVideos();}
+    finally {busy = false; bulkDeleteButton.textContent = 'Xóa đã chọn'; updateSelection();}
+  }
+  const summary = `Đã xóa ${deleted}/${ids.length} record.${failures.length ? ` ${failures.length} record cần kiểm tra.` : ''}`;
+  feedback.replaceChildren(element('p', summary, 'hint'));
+  if (failures.length) {
+    const details = element('details'); details.open = true;
+    details.append(element('summary', `${failures.length} record chưa xóa xong`));
+    for (const failure of failures) details.append(element('p', `${failure.label}: ${failure.message}`, 'hint'));
+    const retry = element('button', `Thử xóa lại ${failures.length} record lỗi`, 'danger');
+    retry.type = 'button';
+    retry.addEventListener('click', () => runBulkDelete(failures.map(failure => failure.id)));
+    details.append(retry); feedback.append(details);
+  }
+  notice(summary, failures.length > 0);
+}
+bulkDeleteButton?.addEventListener('click', () => runBulkDelete());
 function drawApiState() {
   $('captionApiState').textContent = configured ? 'API đã cấu hình' : 'Chưa có API key';
   $('captionApiState').dataset.state = configured ? 'connected' : 'needs_login';
@@ -120,6 +166,10 @@ function drawVideos() {
 async function loadVideos() {
   try {
     const data = await api('/api/captions/videos'); videos = data.videos; configured = data.configured;
+    if (libraryTable) {
+      const visibleIds = new Set([...libraryTable.querySelectorAll('input[data-caption-video]')].map(input => input.dataset.captionVideo));
+      videos = videos.filter(video => visibleIds.has(video.id));
+    }
     if (!initialized && preselected && videos.some(video => video.id === preselected)) selected.add(preselected);
     initialized = true;
     for (const id of selected) if (!videos.some(video => video.id === id)) selected.delete(id);

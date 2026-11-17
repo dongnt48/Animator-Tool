@@ -118,7 +118,8 @@ def process_download_and_render_task(url, limit=5, aspect_ratio="9:16", style="c
             placeholder_id = placeholder["id"]
             update_video_status(placeholder_id, "processing", aspect_ratio=aspect_ratio, style=style, character=character, log_msg="Đang quét video từ kênh...")
 
-            results = downloader.download_channel_videos(url, limit=limit)
+            results = downloader.download_channel_videos(url, limit=limit, progress=lambda message:
+                update_video_status(placeholder_id, 'processing', log_msg=message))
             if not results and getattr(results, 'skipped_duplicates', 0):
                 delete_video(placeholder_id)
                 return
@@ -195,7 +196,8 @@ def process_download_task(url, limit=5, aspect_ratio="9:16", style="cozy", chara
             placeholder_id = placeholder["id"]
             update_video_status(placeholder_id, "processing", aspect_ratio=aspect_ratio, style=style, character=character, log_msg="Đang quét video từ kênh TikTok...")
 
-            results = downloader.download_channel_videos(url, limit=limit)
+            results = downloader.download_channel_videos(url, limit=limit, progress=lambda message:
+                update_video_status(placeholder_id, 'processing', log_msg=message))
             if not results and getattr(results, 'skipped_duplicates', 0):
                 delete_video(placeholder_id)
                 return
@@ -272,7 +274,9 @@ def api_render(video_id):
     aspect_ratio = data.get("aspect_ratio") or video.get("aspect_ratio", "9:16")
     style = data.get("style") or video.get("style", "cozy")
     character = data.get("character") or video.get("character", "stickman")
-    animation_settings = {'mode': 'legacy'}
+    from services.animation.settings import load_settings
+    from services.social.routes import get_store
+    animation_settings = {**load_settings(get_store()), 'mode': 'legacy'}
 
     # Immediately mark as processing so UI updates on next poll instantly
     update_video_status(video_id, "processing", aspect_ratio=aspect_ratio, style=style, character=character, log_msg=f"1/4: Đang chuẩn bị dựng video ({aspect_ratio} - {style} - {character})...")
@@ -305,7 +309,9 @@ def api_render_all():
             "message": f"Tất cả {len(videos)} video đã hoàn thành. Bạn có muốn dựng lại toàn bộ theo chuẩn {aspect_ratio or 'mới'} không?"
         })
 
-    animation_settings = {'mode': 'legacy'}
+    from services.animation.settings import load_settings
+    from services.social.routes import get_store
+    animation_settings = {**load_settings(get_store()), 'mode': 'legacy'}
     for v in videos:
         if force_all or v["status"] in ["new", "error"]:
             v_ratio = aspect_ratio or v.get("aspect_ratio", "9:16")
@@ -335,7 +341,9 @@ def api_download_and_render():
         return jsonify(status='error', message=str(database.DuplicateVideo(duplicate)), duplicate_id=duplicate['id'],
                        deleted=bool(duplicate.get('deleted_at'))), 409
 
-    animation_settings = {'mode': 'legacy'}
+    from services.animation.settings import load_settings
+    from services.social.routes import get_store
+    animation_settings = {**load_settings(get_store()), 'mode': 'legacy'}
     t = threading.Thread(target=process_download_and_render_task, args=(url, limit, aspect_ratio, style, character, animation_settings), daemon=True)
     t.start()
     return jsonify({"status": "success", "message": "Đang bắt đầu tải và dựng hoạt hình tự động!"})

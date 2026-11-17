@@ -3,13 +3,14 @@
     <form id="dailyForm">
       <div class="schedule-top"><div><p class="eyebrow">LẶP HẰNG NGÀY</p><h2 id="dailyHeading">Giờ đăng của bạn</h2></div><label class="toggle-label" for="dailyEnabled"><span>Tự động</span><input type="checkbox" id="dailyEnabled" role="switch"></label></div>
       <label for="dailyTime">Các giờ đăng trong ngày</label><div class="time-entry"><input type="time" id="dailyTime" aria-describedby="dailyTimeHint"><button type="button" id="addDailyTime" class="secondary">Thêm giờ</button></div>
-      <div id="dailyTimes" class="time-chips" aria-live="polite"></div><p class="hint" id="dailyTimeHint">Mỗi giờ lấy 1 video, đăng lên 5 nền tảng.</p>
-      <label for="dailyAudience">Nội dung YouTube dành cho trẻ em?</label><select id="dailyAudience"><option value="">Chọn một lần</option><option value="no">Không dành riêng cho trẻ em</option><option value="yes">Dành cho trẻ em</option></select>
+      <div id="dailyTimes" class="time-chips" aria-live="polite"></div><p class="hint" id="dailyTimeHint">Mỗi giờ lấy 1 video, đăng lên các nền tảng đang bật trong Tài khoản.</p>
+      <p id="dailyDestinations" class="hint"></p>
+      <div id="dailyYoutubeOptions"><label for="dailyAudience">Nội dung YouTube dành cho trẻ em?</label><select id="dailyAudience"><option value="">Chọn một lần</option><option value="no">Không dành riêng cho trẻ em</option><option value="yes">Dành cho trẻ em</option></select></div>
       <details class="advanced-settings"><summary>Cài đặt thêm <span id="dailySettingsSummary">Ngẫu nhiên · UTC+7</span></summary><div class="advanced-fields">
       <label for="dailyTimezone">Múi giờ cố định của lịch</label><select id="dailyTimezone"><option value="Asia/Bangkok">Bangkok / Việt Nam (UTC+7)</option><option value="Asia/Ho_Chi_Minh">Việt Nam (Asia/Ho_Chi_Minh)</option><option value="UTC">UTC</option></select>
       <label for="dailySelection">Cách lấy video chưa dùng</label><select id="dailySelection"><option value="random">Lấy ngẫu nhiên</option><option value="fifo">Lấy lần lượt, video cũ trước</option></select>
       </div></details>
-      <label class="confirmation"><input type="checkbox" id="dailyConfirm"><span>Cho phép tự đăng video và caption có sẵn lên cả 5 nền tảng. Tôi có quyền sử dụng nội dung.</span></label>
+      <label class="confirmation"><input type="checkbox" id="dailyConfirm"><span>Cho phép tự đăng video và caption có sẵn lên các nền tảng đang bật trong Tài khoản. Tôi có quyền sử dụng nội dung.</span></label>
       <button type="submit" id="saveDaily" class="primary">Lưu lịch hằng ngày</button><p class="hint save-hint">Tắt tự động sẽ ngừng lấy bài mới; các lượt đã tạo vẫn tiếp tục.</p>
     </form>
   </section>

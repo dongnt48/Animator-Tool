@@ -9,6 +9,77 @@ from services.social.browser import UploadFlow, BrowserStepError
 
 @unittest.skipUnless(importlib.util.find_spec('playwright'), 'Install requirements and Playwright Chromium for browser tests')
 class BrowserFlowTests(unittest.TestCase):
+    def test_tiktok_own_posts_redirect_confirms_uploaded_caption_and_time(self):
+        import time
+        from urllib.parse import urlsplit
+        now = int(time.time())
+        def route(request):
+            path = urlsplit(request.request.url).path
+            if path == '/tiktokstudio/upload':
+                request.fulfill(status=200, content_type='text/html', body='''<div role="textbox" contenteditable="true">Caption #tag</div><button onclick="location.href='/tiktokstudio/content'">Post</button>''')
+            elif path == '/tiktokstudio/content':
+                request.fulfill(status=200, content_type='text/html', body='''<a href="/@owner/video/12345">Own post</a><script>fetch('/tiktok/creator/manage/item_list/v1/')</script>''')
+            else:
+                request.fulfill(status=200, content_type='application/json', body=json.dumps({'status_code':0, 'item_list':[{'item_id':'12345','desc':'Caption #tag','post_time':str(now),'status':102}]}))
+        self.page.route('https://www.tiktok.com/**', route)
+        self.page.goto('https://www.tiktok.com/tiktokstudio/upload')
+        flow = UploadFlow(self.page, timeout=2)
+        flow.expected_tiktok_caption = 'Caption #tag'
+        receipt = flow.submit('tiktok', '^Post$', lambda: None)
+        self.assertEqual(receipt.url, 'https://www.tiktok.com/@owner/video/12345')
+
+    def test_tiktok_closes_joyride_before_publication_checkpoint(self):
+        self.page.set_content('''<button onclick="window.posted=true;document.getElementById('receipt').hidden=false">Post</button>
+            <div id="receipt" role="status" hidden>Your video has been published <a href="https://www.tiktok.com/@someone/video/12345">View</a></div>
+            <div id="react-joyride-portal"><div role="presentation" data-test-id="overlay" class="react-joyride__overlay" style="position:fixed;inset:0;background:#0008;z-index:100"></div>
+            <div class="react-joyride__tooltip" style="position:fixed;top:100px;left:100px;z-index:101"><p>Welcome to TikTok Studio</p><button data-action="close" onclick="document.getElementById('react-joyride-portal').remove()">Close</button></div></div>''')
+        flow = UploadFlow(self.page, timeout=.5)
+        checkpoints = []
+        def checkpoint():
+            self.assertEqual(self.page.locator('#react-joyride-portal').count(), 0)
+            self.assertIsNone(self.page.evaluate('window.posted'))
+            checkpoints.append('ready')
+        receipt = flow.submit('tiktok', '^Post$', checkpoint)
+        self.assertEqual(checkpoints, ['ready'])
+        self.assertTrue(self.page.evaluate('window.posted'))
+        self.assertTrue(receipt.url.endswith('/12345'))
+
+    def test_tiktok_phone_preview_got_it_dismissed_before_publication(self):
+        self.page.set_content('''<button onclick="document.getElementById('receipt').hidden=false">Post</button>
+            <div id="receipt" role="status" hidden>Your video has been published <a href="https://www.tiktok.com/@someone/video/12345">View</a></div>
+            <div id="react-joyride-portal"><div data-test-id="overlay" class="react-joyride__overlay" style="position:fixed;inset:0;z-index:100"></div>
+            <div data-test-id="tooltip" style="position:fixed;top:20px;left:20px;z-index:101">
+            <h3>Preview your video on your phone</h3><p>Now you can view your video as it will appear on TikTok.</p>
+            <button data-action="next" onclick="document.getElementById('react-joyride-portal').remove()">Got it</button></div></div>''')
+        checkpoints = []
+        receipt = UploadFlow(self.page, timeout=.5).submit('tiktok', '^Post$', lambda: checkpoints.append('ready'))
+        self.assertEqual(checkpoints, ['ready'])
+        self.assertTrue(receipt.url.endswith('/12345'))
+        self.assertEqual(self.page.locator('#react-joyride-portal').count(), 0)
+
+    def test_phone_preview_tip_cannot_dismiss_verification_with_got_it(self):
+        self.page.set_content('''<div id="react-joyride-portal"><div data-test-id="tooltip">
+            <h3>Preview your video on your phone</h3><p>Verify identity</p>
+            <button onclick="window.closedVerification=true">Got it</button></div></div>''')
+        UploadFlow(self.page).dismiss_tiktok_onboarding()
+        self.assertIsNone(self.page.evaluate('window.closedVerification'))
+
+    def test_tiktok_orphan_tour_overlay_stops_before_publication_checkpoint(self):
+        self.page.set_content('''<button onclick="window.posted=true">Post</button>
+            <div id="react-joyride-portal"><div data-test-id="overlay" class="react-joyride__overlay" style="position:fixed;inset:0;background:#0008;z-index:100"></div></div>''')
+        self.page.set_default_timeout(200)
+        flow = UploadFlow(self.page, timeout=.2)
+        checkpoints = []
+        with self.assertRaises(BrowserStepError):
+            flow.submit('tiktok', '^Post$', lambda: checkpoints.append('submitting'))
+        self.assertEqual(checkpoints, [])
+        self.assertIsNone(self.page.evaluate('window.posted'))
+
+    def test_joyride_helper_does_not_close_identity_verification(self):
+        self.page.set_content('''<div id="react-joyride-portal"><div class="react-joyride__tooltip"><h2>Verify identity</h2><input type="text"><button data-action="close" onclick="window.closedVerification=true">Close</button></div></div>''')
+        UploadFlow(self.page).dismiss_tiktok_onboarding()
+        self.assertIsNone(self.page.evaluate('window.closedVerification'))
+
     def test_tiktok_onboarding_text_cannot_cancel_unrelated_verification(self):
         self.page.set_content('''<p>Turn on automatic content checks?</p>
             <div role="dialog"><h2>Verify identity</h2><input type="text"><button onclick="window.cancelledVerification=true">Cancel</button></div>''')
@@ -64,11 +135,81 @@ class BrowserFlowTests(unittest.TestCase):
         self.assertEqual(self.page.locator('#video').evaluate('(e)=>e.files.length'), 0)
         self.assertEqual(self.page.locator('#cover').evaluate('(e)=>e.files[0].name'), 'cover.jpg')
 
+    def test_tiktok_nonbutton_edit_cover_uploads_app_image_and_saves(self):
+        from PIL import Image
+        from services.social.cover_flow import CoverFlow
+        path=Path(self.tmp.name)/'app-cover.jpg';Image.new('RGB',(30,40),'orange').save(path)
+        self.page.set_content('''<input id="video" type="file" accept="video/mp4">
+          <div class="cover-container"><img id="savedPreview"><div class="edit-container" onclick="document.getElementById('editor').hidden=false">Edit cover</div></div>
+          <div id="editor" role="dialog" aria-modal="true" hidden>
+            <div>Edit cover</div><button onclick="this.parentNode.hidden=true">Cancel</button>
+            <button onclick="document.getElementById('savedPreview').src=document.getElementById('customPreview').src;window.coverSaved=true;this.parentNode.hidden=true">Save</button>
+            <div role="button" aria-label="Upload cover image"><input id="coverInput" type="file" accept="image/jpeg, image/png, image/jpg"
+              onchange="const reader=new FileReader();reader.onload=()=>document.getElementById('customPreview').src=reader.result;reader.readAsDataURL(this.files[0])"></div>
+            <img id="customPreview">
+          </div><button onclick="window.posted=true">Post</button>''')
+        flow=CoverFlow(self.page,{'mode':'frame','portrait_path':str(path)})
+        flow.apply('tiktok');flow.finalize()
+        self.assertEqual(flow.state,'applied')
+        self.assertTrue(self.page.evaluate('window.coverSaved'))
+        self.assertFalse(self.page.locator('#editor').is_visible())
+        self.assertEqual(self.page.locator('#coverInput').evaluate('e=>e.files[0].name'),path.name)
+        self.assertEqual(self.page.locator('#video').evaluate('e=>e.files.length'),0)
+        self.assertIsNone(self.page.evaluate('window.posted'))
+
+    def test_tiktok_canvas_cover_stays_recognized_after_upload_input_is_removed(self):
+        from PIL import Image, ImageDraw
+        from services.social.cover_flow import CoverFlow
+        path=Path(self.tmp.name)/'app-cover.jpg';picture=Image.new('RGB',(30,40),'orange');ImageDraw.Draw(picture).text((2,10),'APP',fill='black');picture.save(path)
+        self.page.set_content('''<input id="video" type="file" accept="video/mp4">
+          <div class="cover-container"><img id="savedPreview"><div onclick="document.getElementById('editor').hidden=false">Edit cover</div></div>
+          <div id="editor" role="dialog" data-dialog-content="true" hidden><div>Edit cover</div>
+            <button onclick="this.parentNode.hidden=true">Cancel</button>
+            <button onclick="document.getElementById('savedPreview').src=document.getElementById('customPreview').toDataURL();this.parentNode.hidden=true;window.coverSaved=true">Save</button>
+            <input id="coverInput" type="file" accept="image/jpeg" onchange="const reader=new FileReader();window.uploadedName=this.files[0].name;reader.onload=()=>{const image=new Image();image.onload=()=>{document.getElementById('customPreview').getContext('2d').drawImage(image,0,0);this.remove();};image.src=reader.result;};reader.readAsDataURL(this.files[0])">
+            <canvas id="customPreview" width="30" height="40"></canvas>
+          </div><button onclick="window.posted=true">Post</button>''')
+        flow=CoverFlow(self.page,{'mode':'frame','portrait_path':str(path)})
+        flow.apply('tiktok');flow.finalize()
+        self.assertEqual(flow.state,'applied')
+        self.assertTrue(self.page.evaluate('window.coverSaved'))
+        self.assertFalse(self.page.locator('#editor').is_visible())
+        self.assertEqual(self.page.evaluate('window.uploadedName'),path.name)
+        self.assertEqual(self.page.locator('#video').evaluate('e=>e.files.length'),0)
+        self.assertIsNone(self.page.evaluate('window.posted'))
+
+    def test_tiktok_waits_for_uploaded_image_to_render_on_new_canvas_before_save(self):
+        from PIL import Image, ImageDraw
+        from services.social.cover_flow import CoverFlow
+        path=Path(self.tmp.name)/'app-cover.jpg';picture=Image.new('RGB',(30,40),'orange');ImageDraw.Draw(picture).text((2,10),'APP',fill='black');picture.save(path)
+        self.page.set_content('''<div class="cover-container"><img id="savedPreview"><div onclick="document.getElementById('editor').hidden=false">Edit cover</div></div>
+          <div id="editor" role="dialog" data-dialog-content="true" hidden><div>Edit cover</div><button onclick="this.parentNode.hidden=true">Cancel</button>
+            <button onclick="window.savedBeforeImage=!window.imageReady;document.getElementById('savedPreview').src=document.getElementById('customPreview').toDataURL();this.parentNode.hidden=true">Save</button>
+            <div id="previewHost"></div><input type="file" accept="image/jpeg" onchange="const canvas=document.createElement('canvas');canvas.id='customPreview';canvas.width=30;canvas.height=40;document.getElementById('previewHost').append(canvas);const reader=new FileReader();reader.onload=()=>{const image=new Image();image.onload=()=>setTimeout(()=>{canvas.getContext('2d').drawImage(image,0,0);window.imageReady=true;this.remove();},700);image.src=reader.result;};reader.readAsDataURL(this.files[0])">
+          </div>''')
+        flow=CoverFlow(self.page,{'mode':'frame','portrait_path':str(path)})
+        flow.apply('tiktok');flow.finalize()
+        self.assertEqual(flow.state,'applied')
+        self.assertFalse(self.page.evaluate('window.savedBeforeImage'))
+
+    def test_tiktok_supplied_cover_cannot_silently_use_an_automatic_thumbnail(self):
+        from PIL import Image
+        from services.social.cover_flow import CoverFlow
+        path=Path(self.tmp.name)/'custom-cover.jpg';Image.new('RGB',(30,40),'orange').save(path)
+        self.page.set_content('<input id="video" type="file" accept="video/mp4"><div data-testid="cover-editor"><input id="nativeFrame" type="range" min="0" max="100" value="0" style="width:380px"></div><button>Post</button>')
+        flow=CoverFlow(self.page,{'mode':'frame','portrait_path':str(path),'duration':10,'timestamp':6})
+        flow.apply('tiktok')
+        with self.assertRaisesRegex(ValueError,'ảnh bìa'):
+            flow.finalize()
+        self.assertEqual(flow.state,'needs_review')
+        self.assertEqual(self.page.locator('#nativeFrame').input_value(),'0')
+        self.assertEqual(self.page.locator('#video').evaluate('e=>e.files.length'),0)
+
     def test_cover_frame_selector_reports_frame_instead_of_custom_image(self):
         from services.social.cover_flow import CoverFlow
         self.page.set_content('<div data-testid="cover-editor" style="width:400px"><input type="range" min="0" max="100" value="0" style="width:380px"></div>')
         flow = CoverFlow(self.page, {'mode': 'frame', 'timestamp': 6, 'duration': 10, 'portrait_path': 'unused.jpg'})
-        flow.apply('tiktok'); flow.finalize()
+        flow.apply('facebook'); flow.finalize()
         self.assertEqual(flow.state, 'frame')
         self.assertIn('không được tải lên', flow.message)
 
@@ -176,6 +317,108 @@ class BrowserFlowTests(unittest.TestCase):
         self.page.evaluate("const a=document.createElement('a');a.href='https://www.tiktok.com/@other/video/12345';a.textContent='Recommendation';document.body.append(a)")
         with self.assertRaises(BrowserStepError):
             flow.submit('tiktok', pattern, lambda: None)
+
+    def test_facebook_confirms_own_page_story_after_composer_redirect(self):
+        import time
+        from urllib.parse import urlsplit
+        from tests.test_facebook_verification import story
+        self.page.context.add_cookies([{'name':'c_user','value':'personal-account','domain':'.facebook.com','path':'/'},
+                                      {'name':'i_user','value':'page-owner','domain':'.facebook.com','path':'/'}])
+        evidence=story(posted=int(time.time()))
+        def route(request):
+            path=urlsplit(request.request.url).path
+            if path=='/reels/create/':
+                request.fulfill(status=200,content_type='text/html',body='''<button onclick="location.href='/home.php'">Share</button>''')
+            elif path=='/api/graphql/':
+                request.fulfill(status=200,content_type='application/json',body='for (;;);'+json.dumps({'data':{'node':evidence}}))
+            else:
+                request.fulfill(status=200,content_type='text/html',body='''<script>fetch('/api/graphql/')</script>''')
+        self.page.route('https://www.facebook.com/**',route)
+        self.page.goto('https://www.facebook.com/reels/create/')
+        flow=UploadFlow(self.page,timeout=2)
+        flow.expected_facebook_caption='Caption #tag'
+        receipt=flow.submit('facebook','^Share$',lambda:None)
+        self.assertEqual(receipt.url,'https://www.facebook.com/reel/12345')
+
+    def test_facebook_checks_own_profile_when_feed_has_no_post_receipt(self):
+        import time
+        from urllib.parse import urlsplit
+        from tests.test_facebook_verification import story
+        self.page.context.add_cookies([{'name':'c_user','value':'999','domain':'.facebook.com','path':'/'},
+                                      {'name':'i_user','value':'123','domain':'.facebook.com','path':'/'}])
+        evidence=story(actor='123',posted=int(time.time()))
+        def route(request):
+            path=urlsplit(request.request.url).path
+            if path=='/reels/create/':
+                body='''<button onclick="location.href='/home.php'">Share</button>'''
+            elif path=='/profile.php':
+                body='<script type="application/json">'+json.dumps({'data':{'node':evidence}})+'</script>'
+            else:
+                body='<p>News feed without upload receipt</p>'
+            request.fulfill(status=200,content_type='text/html',body=body)
+        self.page.route('https://www.facebook.com/**',route)
+        self.page.goto('https://www.facebook.com/reels/create/')
+        flow=UploadFlow(self.page,timeout=4);flow.expected_facebook_caption='Caption #tag'
+        receipt=flow.submit('facebook','^Share$',lambda:None)
+        self.assertEqual(receipt.url,'https://www.facebook.com/reel/12345')
+        self.assertIn('profile.php?id=123',self.page.url)
+
+    def test_facebook_cover_modal_upload_is_saved_before_next_step(self):
+        from PIL import Image
+        cover_path = Path(self.tmp.name)/'facebook-cover.jpg'
+        Image.new('RGB', (30, 40), 'orange').save(cover_path)
+        self.page.set_default_timeout(1200)
+        self.page.set_content('''<input id="video" type="file" accept="video/mp4"><div role="textbox" contenteditable="true"></div>
+          <div data-testid="cover-editor"><img id="preview"><button onclick="document.getElementById('modal').hidden=false">Edit cover</button></div>
+          <div id="modal" hidden style="position:fixed;inset:0;background:white;z-index:99">
+            <div role="dialog" aria-label="Chọn hình thu nhỏ"><h2>Chọn hình thu nhỏ</h2><button aria-label="Đóng" onclick="document.getElementById('modal').hidden=true">×</button></div>
+            <img id="coverPreview"><input id="coverFile" type="file" accept=".png,.jpg,.jpeg" hidden
+              onchange="const reader=new FileReader();reader.onload=()=>{document.getElementById('coverPreview').src=reader.result;setTimeout(()=>document.getElementById('saveCover').disabled=false,700);};reader.readAsDataURL(this.files[0])">
+            <button onclick="document.getElementById('coverFile').click()">Tải lên</button>
+            <button id="saveCover" disabled onclick="document.getElementById('preview').src=document.getElementById('coverPreview').src;this.parentNode.hidden=true;window.savedCover=true">Lưu</button>
+          </div>
+          <button id="next" onclick="this.hidden=true;document.getElementById('post').hidden=false;window.advanced=true">Tiếp</button>
+          <button id="post" hidden onclick="window.posted=true">Đăng</button>''')
+        flow = UploadFlow(self.page, timeout=5)
+        flow.prepare('facebook', str(self.media), 'Caption nguyên vẹn', False,
+                     cover={'mode':'upload','portrait_path':str(cover_path)})
+        self.assertEqual(flow.cover_flow.state, 'applied')
+        self.assertTrue(self.page.evaluate('window.savedCover'))
+        self.assertTrue(self.page.evaluate('window.advanced'))
+        self.assertIsNone(self.page.evaluate('window.posted'))
+        self.assertFalse(self.page.locator('#modal').is_visible())
+        self.assertEqual(self.page.locator('#video').evaluate('e=>e.files[0].name'), self.media.name)
+        self.assertEqual(self.page.locator('#coverFile').evaluate('e=>e.files[0].name'), cover_path.name)
+        self.assertEqual(self.page.locator('[role=textbox]').inner_text(), 'Caption nguyên vẹn')
+
+    def test_cover_frame_waits_for_save_before_reporting_selected_frame(self):
+        from services.social.cover_flow import CoverFlow
+        self.page.set_content('''<div role="dialog" aria-label="Select thumbnail"><h2>Select thumbnail</h2>
+          <input type="range" min="0" max="100" value="0" style="width:380px" onchange="setTimeout(()=>document.getElementById('save').disabled=false,700)">
+          <button id="save" disabled onclick="window.savedFrame=true;this.parentNode.hidden=true">Save</button>
+          <button onclick="window.cancelledFrame=true;this.parentNode.hidden=true">Close</button></div>''')
+        flow=CoverFlow(self.page,{'mode':'frame','timestamp':6,'duration':10,'portrait_path':'unused.jpg'})
+        flow.apply('facebook')
+        self.assertEqual(flow.state,'frame')
+        self.assertTrue(self.page.evaluate('window.savedFrame'))
+        self.assertIsNone(self.page.evaluate('window.cancelledFrame'))
+
+    def test_facebook_disabled_cover_save_is_closed_without_clicking_composer(self):
+        from PIL import Image
+        cover_path = Path(self.tmp.name)/'facebook-cover.jpg'
+        Image.new('RGB', (30, 40), 'orange').save(cover_path)
+        self.page.set_default_timeout(1200)
+        self.page.set_content('''<input type="file"><div role="textbox" contenteditable="true"></div>
+          <button onclick="document.getElementById('modal').hidden=false">Edit cover</button>
+          <div role="dialog" id="modal" hidden style="position:fixed;inset:0;background:white;z-index:99"><h2>Chọn hình thu nhỏ</h2>
+            <button aria-label="Đóng" onclick="this.parentNode.hidden=true">×</button><button disabled>Lưu</button></div>
+          <button onclick="this.hidden=true;document.getElementById('post').hidden=false">Tiếp</button>
+          <button id="post" hidden onclick="window.posted=true">Đăng</button>''')
+        flow = UploadFlow(self.page, timeout=4)
+        flow.prepare('facebook', str(self.media), 'Caption', False,cover={'mode':'upload','portrait_path':str(cover_path)})
+        self.assertEqual(flow.cover_flow.state, 'automatic')
+        self.assertFalse(self.page.locator('#modal').is_visible())
+        self.assertIsNone(self.page.evaluate('window.posted'))
 
     def test_facebook_one_next_step_fills_caption_before_settings(self):
         self.page.set_content('''<input type="file"><div id="stage"><textarea aria-label="Mô tả thước phim"></textarea>

@@ -14,6 +14,8 @@ from werkzeug.exceptions import HTTPException
 import database
 from .store import Store, PLATFORMS, Conflict
 from .worker import data_dir
+from .browser import HOME
+from .profiles import browser_executable, profile_path
 from .daily import validated_output, caption_of, ready_content, daily_status
 
 social = Blueprint('social', __name__)
@@ -85,7 +87,8 @@ register_pages(social)
 def status():
     store = get_store()
     items = ready_content(database.get_all_videos(), current_app.config.get('SOCIAL_OUTPUTS_DIR', PROJECT_DIR / 'outputs'))
-    videos = [{key:value for key,value in item.items() if key != 'media_path'} for item in items]
+    published = store.published_video_ids()
+    videos = [{key:value for key,value in item.items() if key != 'media_path'} for item in items if item['id'] not in published]
     seen = store.worker_seen()
     return jsonify(status='success', platforms=PLATFORMS, videos=videos, accounts=store.accounts(),
                    batches=[public_batch(batch) for batch in store.list_batches()], worker_seen=seen,
@@ -128,7 +131,7 @@ def thumbnail(video_id,kind):
 def save_daily():
     body = request.get_json()
     if body.get('enabled') is True and body.get('confirm_all_platforms') is not True:
-        raise ValueError('Xác nhận cho phép tự lấy bài và đăng lên cả 5 nền tảng theo lịch hằng ngày.')
+        raise ValueError('Xác nhận cho phép tự lấy bài và đăng lên các nền tảng đang bật theo lịch hằng ngày.')
     config = get_store().save_daily(body)
     return jsonify(status='success', config=config, message='Đã lưu lịch hằng ngày. Cấu hình áp dụng từ bây giờ.')
 
@@ -158,7 +161,7 @@ def worker_start():
 @social.post('/api/social/accounts/<platform>/connect')
 def connect(platform):
     if importlib.util.find_spec('playwright') is None:
-        raise ValueError('Chưa cài Playwright. Chạy setup.bat trước.')
+        raise ValueError('Chưa cài Playwright. Chạy setup.sh hoặc setup.bat trước.')
     store = get_store()
     owner = store.begin_login(platform)
     try:
@@ -167,6 +170,50 @@ def connect(platform):
         store.login_failed(platform, owner, 'Không mở được tiến trình trình duyệt. Kiểm tra cài đặt.')
         raise ValueError('Không mở được trình duyệt đăng nhập.') from None
     return jsonify(status='success', message='Đăng nhập thủ công trong cửa sổ vừa mở, kiểm tra đúng tài khoản rồi bấm Lưu phiên.'), 202
+
+
+@social.post('/api/social/accounts/<platform>/publishing')
+def account_publishing(platform):
+    enabled = request.get_json().get('enabled')
+    get_store().set_publishing_enabled(platform, enabled)
+    return jsonify(status='success', message='Đã bật đăng nền tảng này.' if enabled else
+                   'Đã tắt đăng và hủy tác vụ còn chờ của nền tảng này. Tác vụ đang chạy vẫn tiếp tục.')
+
+
+@social.post('/api/social/accounts/<platform>/open-browser')
+def open_account_browser(platform):
+    if platform not in PLATFORMS:
+        raise ValueError('Nền tảng không hợp lệ.')
+    store = get_store()
+    account = next(item for item in store.accounts() if item['platform'] == platform)
+    if account['lease_until'] > time.time():
+        raise Conflict(f'Hồ sơ {platform} đang được Studio sử dụng. Hãy đợi tác vụ hiện tại kết thúc rồi thử lại.')
+    executable = browser_executable(platform)
+    if not executable:
+        if platform == 'tiktok':
+            raise ValueError('Không tìm thấy Google Chrome chính thức. Cài Chrome rồi thử lại.')
+        raise ValueError('Chưa cài Chromium cho Playwright. Chạy setup.sh hoặc setup.bat rồi thử lại.')
+    profile = profile_path(store.path.parent, platform)
+    profile.mkdir(parents=True, exist_ok=True)
+    command = [executable, f'--user-data-dir={profile}', '--no-first-run', '--no-default-browser-check',
+               '--new-window', HOME[platform]]
+    options = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL,
+               'stderr': subprocess.DEVNULL, 'close_fds': True}
+    if os.name == 'nt':
+        options['creationflags'] = (getattr(subprocess, 'DETACHED_PROCESS', 0)
+                                    | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
+    else:
+        options['start_new_session'] = True
+    try:
+        subprocess.Popen(command, **options)
+    except OSError:
+        raise ValueError('Không mở được trình duyệt. Kiểm tra cài đặt rồi thử lại.') from None
+    browser_name = 'Google Chrome' if platform == 'tiktok' else 'Chromium'
+    platform_name = {'facebook': 'Facebook', 'instagram': 'Instagram', 'threads': 'Threads',
+                     'tiktok': 'TikTok', 'youtube': 'YouTube'}[platform]
+    message = (f'Đã mở {browser_name} với hồ sơ riêng của {platform_name}. Đăng nhập, '
+               'đóng trình duyệt hoàn toàn, rồi bấm Kết nối và Lưu phiên trong Studio.')
+    return jsonify(status='success', message=message), 202
 
 
 @social.post('/api/social/accounts/<platform>/save')
@@ -184,11 +231,18 @@ def cancel_login(platform):
 @social.post('/api/social/batches')
 def schedule():
     body = request.get_json()
+    targets = body.get('platforms')
+    if 'platforms' in body:
+        if (not isinstance(targets, list) or not targets
+                or any(not isinstance(p, str) or p not in PLATFORMS for p in targets)
+                or len(set(targets)) != len(targets)):
+            raise ValueError('Chọn các nền tảng hợp lệ, không trùng nhau.')
+        targets = [p for p in PLATFORMS if p in targets]
     video_id = body.get('video_id')
     if not isinstance(video_id, str) or not video_id:
         raise ValueError('Hãy chọn video đã dựng.')
     if body.get('confirm_all_platforms') is not True:
-        raise ValueError('Cần xác nhận đăng lên cả 5 nền tảng.')
+        raise ValueError('Cần xác nhận đăng lên các nền tảng đang bật.')
     made_for_kids = body.get('made_for_kids')
     if type(made_for_kids) is not bool:
         raise ValueError('Hãy chọn video có dành cho trẻ em trên YouTube hay không.')
@@ -209,7 +263,8 @@ def schedule():
     existing = get_store().find_request(request_key)
     if existing is not None:
         if (existing['video_id'] != video_id or existing['scheduled_at'] != scheduled_at
-                or existing['made_for_kids'] != made_for_kids):
+                or existing['made_for_kids'] != made_for_kids
+                or (targets is not None and targets != [task['platform'] for task in existing['tasks']])):
             raise Conflict('Mã yêu cầu đã được dùng cho một lịch khác.')
         return jsonify(status='success', batch=public_batch(existing)), 201
     now = time.time()
@@ -225,7 +280,7 @@ def schedule():
         from services.covers.images import ensure_cover
         from services.covers.routes import cover_root
         cover = ensure_cover(video_id, path, cover_root())
-        batch = get_store().create_batch(video_id, str(path), existing_caption(video), scheduled_at, made_for_kids, request_key, cover=cover)
+        batch = get_store().create_batch(video_id, str(path), existing_caption(video), scheduled_at, made_for_kids, request_key, cover=cover, platforms=targets)
     except OSError:
         raise ValueError('Không đọc được video đầu ra. Hãy kiểm tra file rồi thử lại.') from None
     return jsonify(status='success', batch=public_batch(batch)), 201

@@ -103,7 +103,9 @@ def _render_video_pipeline(video_id, aspect_ratio=None, style=None, character=No
         # Only the dedicated AI endpoint opts into Antigravity.
         config = animation_settings or {'mode': 'legacy'}
         engine_dir = REMOTION_DIR
-        if config['mode'] == 'legacy' and os.path.isfile(os.path.join(LEGACY_REMOTION_DIR, 'src', 'index.ts')):
+        # The optional external engine predates branding; use the bundled
+        # composition when a watermark is requested so it cannot be omitted.
+        if config['mode'] == 'legacy' and not config.get('channel_name') and os.path.isfile(os.path.join(LEGACY_REMOTION_DIR, 'src', 'index.ts')):
             engine_dir = LEGACY_REMOTION_DIR
         engine_public = os.path.join(engine_dir, 'public')
         os.makedirs(engine_public, exist_ok=True)
@@ -159,6 +161,7 @@ def _render_video_pipeline(video_id, aspect_ratio=None, style=None, character=No
             "audioSrc": audio_rel_name,
             "totalDurationInFrames": analysis["durationInFrames"],
             "channelTag": channel_tag,
+            "watermarkText": config.get('channel_name', ''),
             "aspectRatio": aspect_ratio,
             "style": style,
             "character": character,

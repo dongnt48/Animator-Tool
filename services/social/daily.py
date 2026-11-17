@@ -117,12 +117,12 @@ class DailyScheduler:
                 return dict(existing) if existing['state'] == 'preparing' else None
             used = {row[0] for row in db.execute('SELECT video_id FROM batches UNION SELECT video_id FROM daily_runs WHERE video_id IS NOT NULL')}
             available = [item for item in items if item['id'] not in used]
-            connected = db.execute("SELECT 1 FROM accounts WHERE state='connected' LIMIT 1").fetchone()
+            connected = db.execute("SELECT 1 FROM accounts WHERE state='connected' AND publishing_enabled=1 LIMIT 1").fetchone()
             state, message, item = 'preparing', '', None
             if reason:
                 state, message = 'skipped', reason
             elif not connected:
-                state, message = 'blocked', 'Chưa có nền tảng nào lưu phiên; không lấy bài.'
+                state, message = 'blocked', 'Chưa có nền tảng đang bật nào lưu phiên; không lấy bài.'
             elif not available:
                 state, message = 'empty', 'Hết video chưa dùng; bỏ qua khung giờ này.'
             else:
@@ -141,7 +141,7 @@ class DailyScheduler:
     def complete(self, run, config, items):
         existing = self.store.find_request(run['request_key'])
         if existing is not None:
-            self.record(run, 'scheduled', 'Đã lấy một video cho cả 5 nền tảng.', existing['id'])
+            self.record(run, 'scheduled', 'Đã lấy một video cho các nền tảng đang bật.', existing['id'])
             return existing
         if not config['enabled'] or run['revision'] != config['revision']:
             self.record(run, 'cancelled', 'Cấu hình đã tắt hoặc thay đổi; không lấy thêm bài.')
@@ -159,11 +159,11 @@ class DailyScheduler:
             # A concurrent tick may have completed the same idempotent request already.
             existing = self.store.find_request(run['request_key'])
             if existing is not None:
-                self.record(run, 'scheduled', 'Đã lấy một video cho cả 5 nền tảng.', existing['id'])
+                self.record(run, 'scheduled', 'Đã lấy một video cho các nền tảng đang bật.', existing['id'])
                 return existing
             self.record(run, 'cancelled' if isinstance(exc, Conflict) else 'error', str(exc))
             return None
-        self.record(run, 'scheduled', 'Đã lấy một video cho cả 5 nền tảng.', batch['id'])
+        self.record(run, 'scheduled', 'Đã lấy một video cho các nền tảng đang bật.', batch['id'])
         return batch
 
     def tick(self, now=None):

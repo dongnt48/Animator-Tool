@@ -125,6 +125,23 @@ class UploadFlow:
 
     def dismiss_tiktok_onboarding(self):
         # Optional first-use tips only. Never dismiss verification or violation dialogs.
+        for tour in self.page.locator('#react-joyride-portal .react-joyride__tooltip, '
+                                      '#react-joyride-portal [data-test-id="tooltip"]').all():
+            if not tour.is_visible():
+                continue
+            if (tour.locator('[contenteditable="true"],textarea,input:not([type="checkbox"])').count()
+                    or re.search(r'verif|captcha|security|xác minh|bảo mật', tour.inner_text(), re.I)):
+                continue
+            # Joyride exposes explicit tour actions; never click a general page Close.
+            actions = tour.locator('button[data-action="close"],button[data-action="skip"]')
+            # TikTok's phone-preview tip has only a Got it (Joyride next)
+            # action. Limit this fallback to the observed onboarding title.
+            if any(title.is_visible() for title in tour.get_by_text('Preview your video on your phone', exact=True).all()):
+                actions = actions.or_(tour.get_by_role('button', name=re.compile(r'^(Got it|Đã hiểu|Đã rõ)$', re.I)))
+            for button in actions.all():
+                if button.is_visible() and button.is_enabled():
+                    button.click()
+                    break
         for title, button_text in [('Turn on automatic content checks?', 'Cancel'),
                                    ('New editing features added', 'Got it')]:
             containers = self.page.locator('[role="dialog"],dialog,[aria-modal="true"],[role="tooltip"],'
@@ -188,6 +205,7 @@ class UploadFlow:
         self.page.locator('input[type="file"]').first.set_input_files(str(media_path))
 
     def prepare_facebook(self, media_path, caption):
+        self.expected_facebook_caption = caption
         self.upload_file(media_path)
         final_pattern = r'^(Share|Share now|Publish|Post|Chia sẻ|Chia sẻ ngay|Đăng)(?: (?:reel|thước phim))?$'
         next_pattern = r'^(Next|Tiếp|Tiếp theo)$'
@@ -311,6 +329,18 @@ class UploadFlow:
         return results
 
     def submit(self, platform, button_pattern, before_publish):
+        from .verification import TikTokPostIndex
+        index = TikTokPostIndex(self.page) if platform == 'tiktok' else None
+        if platform == 'facebook':
+            from .facebook_verification import FacebookPostIndex, facebook_actor
+            index = FacebookPostIndex(self.page, facebook_actor(self.page.context.cookies()))
+        try:
+            return self._submit(platform, button_pattern, before_publish, index)
+        finally:
+            if index is not None:
+                index.close()
+
+    def _submit(self, platform, button_pattern, before_publish, index):
         success = re.compile(r'(Your (?:post|reel|video) (?:has been |was )?(?:shared|published|posted)|'
                              r'(?:Post|Reel|Video) (?:published|shared|posted)|'
                              r'Đã (?:chia sẻ|đăng|xuất bản)|(?:đăng|chia sẻ|xuất bản) thành công)', re.I)
@@ -319,9 +349,22 @@ class UploadFlow:
         final_button = self.button(button_pattern)
         if platform == 'tiktok':
             self.verify_tiktok_caption()
+            self.dismiss_tiktok_onboarding()
+            from playwright.sync_api import TimeoutError as PlaywrightTimeout
+            for overlay in self.page.locator('#react-joyride-portal .react-joyride__overlay, '
+                                             '#react-joyride-portal [data-test-id="overlay"]').all():
+                try:
+                    overlay.wait_for(state='hidden', timeout=min(5000, max(100, int(self.timeout * 1000))))
+                except PlaywrightTimeout:
+                    raise BrowserStepError('Hướng dẫn TikTok đang che nút Đăng. Đóng hướng dẫn trong TikTok Studio rồi thử lại; chưa bấm xuất bản.') from None
+        # Confirm actionability while failure is still safely before publication.
+        final_button.click(trial=True)
         before_publish()  # Durable DB checkpoint BEFORE any click that could publish.
+        started = time.time()
         final_button.click()
         deadline = time.monotonic() + self.timeout
+        clicked_at = time.monotonic()
+        profile_checked = False
         confirmation_clicked = False
         while time.monotonic() < deadline:
             # Some TikTok accounts show a final confirmation after the Post click.
@@ -334,8 +377,25 @@ class UploadFlow:
             links = self.successful_receipts(platform, success) - old_receipts
             if len(links) == 1:
                 return Receipt(next(iter(links)), 'Đã thấy xác nhận xuất bản và link bài từ nền tảng.')
+            if index is not None:
+                caption = getattr(self, 'expected_tiktok_caption' if platform == 'tiktok' else 'expected_facebook_caption', None)
+                link = index.find(caption, started - 2, time.time() + 2)
+                if link:
+                    return Receipt(link, 'Hệ thống đã đối chiếu tác giả, caption, thời điểm và link bài trên nền tảng.')
+                if platform == 'facebook' and not profile_checked and caption and time.monotonic()-clicked_at >= 1:
+                    current = urlsplit(self.page.url)
+                    actor = index.actor_id
+                    # Only inspect the profile after Facebook has left the
+                    # composer; never navigate away from an in-flight upload.
+                    if (current.scheme == 'https' and current.hostname in ('facebook.com','www.facebook.com')
+                            and current.path.rstrip('/') != '/reels/create' and isinstance(actor,str) and actor.isdigit()):
+                        profile_checked = True
+                        remaining = deadline-time.monotonic()
+                        if remaining > 0:
+                            self.page.goto('https://www.facebook.com/profile.php?id='+actor,
+                                           wait_until='domcontentloaded',timeout=min(30000,max(1000,int(remaining*1000))))
             self.page.wait_for_timeout(500)
-        raise BrowserStepError('Đã bấm xuất bản nhưng chưa xác nhận được link bài. Kiểm tra tài khoản trước khi thử lại.')
+        raise BrowserStepError('Đã bấm xuất bản nhưng hệ thống chưa xác định được kết quả. Không tự đăng lại để tránh trùng bài.')
 
 
 class BrowserPublisher:
@@ -350,7 +410,9 @@ class BrowserPublisher:
         if not profile.is_dir():
             raise LoginRequired('Chưa có hồ sơ trình duyệt. Hãy kết nối tài khoản.')
         with sync_playwright() as playwright:
-            context = launch_profile(playwright, self.data_dir, platform)
+            # Space browser actions for observable progress while retaining
+            # Playwright's visibility, stability and enabled-state checks.
+            context = launch_profile(playwright, self.data_dir, platform, slow_mo=5000)
             try:
                 context.set_default_timeout(20000)
                 page = context.pages[0] if context.pages else context.new_page()
@@ -365,10 +427,17 @@ class BrowserPublisher:
                     raise LoginRequired('Nền tảng đang yêu cầu đăng nhập hoặc xác minh thủ công.')
                 flow = UploadFlow(page)
                 publish_button = flow.prepare(platform, task['media_path'], task['caption'], bool(task['made_for_kids']), cover=task.get('cover'))
-                flow.cover_flow.finalize()
-                if self.cover_reporter:
-                    self.cover_reporter(task, flow.cover_flow.state, flow.cover_flow.message)
-                return flow.submit(platform, publish_button, before_publish)
+                try:
+                    flow.cover_flow.finalize()
+                finally:
+                    if self.cover_reporter:
+                        self.cover_reporter(task, flow.cover_flow.state, flow.cover_flow.message)
+                def checkpoint():
+                    if platform == 'facebook':
+                        from .facebook_verification import facebook_actor
+                        task['actor_identity'] = facebook_actor(context.cookies()) or ''
+                    before_publish()
+                return flow.submit(platform, publish_button, checkpoint)
             except Exception:
                 diagnostics = self.data_dir / 'diagnostics'
                 diagnostics.mkdir(parents=True, exist_ok=True)

@@ -6,7 +6,7 @@ import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULTS = {'mode': 'antigravity', 'model': '', 'speech_model': 'small'}
+DEFAULTS = {'mode': 'antigravity', 'model': '', 'speech_model': 'small', 'channel_name': ''}
 SPEECH_MODELS = ('tiny', 'base', 'small', 'medium', 'large-v3')
 
 
@@ -35,6 +35,8 @@ def validate_update(body):
     for key, value in body.items():
         if not isinstance(value, str):
             raise ValueError('Cấu hình phải là chuỗi.')
+        if key == 'channel_name' and (len(value.strip()) > 80 or any(ord(c) < 32 or ord(c) == 127 or c in '\u2028\u2029' for c in value)):
+            raise ValueError('Tên kênh tối đa 80 ký tự và chỉ gồm một dòng.')
         value = value.strip()
         if key == 'mode' and value not in ('legacy', 'antigravity'):
             raise ValueError('Chọn dựng hiện tại hoặc Antigravity.')

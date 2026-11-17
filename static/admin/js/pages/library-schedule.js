@@ -1,4 +1,4 @@
-import { $, api, notice, refresh } from '../core.js';
+import { $, api, notice, refresh, names } from '../core.js';
 
 const dialog = $('libraryScheduleDialog');
 let videoId = null;
@@ -6,6 +6,7 @@ let busy = false;
 let requestKey = crypto.randomUUID();
 let submittedPayload = null;
 let loading = false;
+let targetPlatforms = [];
 
 function setBusy(value) {
   busy = value;
@@ -28,12 +29,18 @@ $('videoTableBody').addEventListener('click',async event => {
   const id = button.dataset.scheduleVideo;
   loading = true; button.disabled = true;
   try {
-    const data = await api(`/api/social/videos/${encodeURIComponent(id)}`);
+    const [data, status] = await Promise.all([api(`/api/social/videos/${encodeURIComponent(id)}`), api('/api/social/status')]);
+    if (Object.values(data.publication).some(info => info.state === 'published')) throw new Error('Record đã đăng thành công; không tạo lượt mới.');
+    targetPlatforms = status.accounts.filter(account => account.publishing_enabled !== false).map(account => account.platform);
+    if (!targetPlatforms.length) throw new Error('Bật ít nhất một nền tảng nhận bài trong Tài khoản.');
     if (data.video.status !== 'completed' || !data.media.output) throw new Error('Video chưa dựng xong hoặc không còn file thành phẩm.');
     videoId = id; requestKey = crypto.randomUUID(); submittedPayload = null;
     $('libraryScheduleForm').reset(); $('libraryScheduleMessage').textContent = '';
     $('libraryScheduleTitle').textContent = data.video.title || 'Video';
     $('libraryScheduleCaption').textContent = data.video.caption ?? data.video.title ?? '';
+    $('libraryScheduleTargets').textContent = `Đăng lên: ${targetPlatforms.map(platform => names[platform]).join(', ')}.`;
+    $('libraryScheduleYoutubeOptions').hidden = !targetPlatforms.includes('youtube');
+    $('libraryScheduleAudience').required = targetPlatforms.includes('youtube');
     const soon = new Date(Date.now()+5*60000);
     $('libraryScheduleAt').value = new Date(soon.getTime()-soon.getTimezoneOffset()*60000).toISOString().slice(0,16);
     $('libraryScheduleTimezone').textContent = `Múi giờ: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
@@ -47,12 +54,12 @@ $('libraryScheduleForm').addEventListener('submit',async event => {
   if (!submittedPayload && (!Number.isFinite(when.getTime()) || when.getTime() < Date.now()-5000)) {
     $('libraryScheduleMessage').textContent = 'Chọn thời gian từ hiện tại trở đi.'; return;
   }
-  submittedPayload ||= {video_id:videoId,scheduled_at:when.toISOString(),made_for_kids:$('libraryScheduleAudience').value==='yes',confirm_all_platforms:$('libraryScheduleConfirm').checked,request_key:requestKey};
+  submittedPayload ||= {video_id:videoId,scheduled_at:when.toISOString(),made_for_kids:$('libraryScheduleAudience').value==='yes',confirm_all_platforms:$('libraryScheduleConfirm').checked,request_key:requestKey,platforms:[...targetPlatforms]};
   setBusy(true);
   try {
     await api('/api/social/batches',submittedPayload);
     dialog.close(); submittedPayload = null; videoId = null;
-    notice('Đã lưu lịch đăng cho cả 5 nền tảng.');
+    notice('Đã lưu lịch đăng cho các nền tảng đã chọn.');
     await window.fetchVideos(); await refresh();
   } catch (error) {$('libraryScheduleMessage').textContent = error.message;}
   finally {setBusy(false);}

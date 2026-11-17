@@ -2,18 +2,20 @@ const form = document.getElementById('animationSettingsForm');
 if (form) {
   const model = document.getElementById('animationModel');
   const speech = document.getElementById('animationSpeechModel');
+  const channelName = document.getElementById('animationChannelName');
   const button = document.getElementById('saveAnimationSettings');
   const message = document.getElementById('animationSettingsMessage');
   const ready = document.getElementById('animationReadiness');
   let saving = false;
   let dirty = false;
   let loaded = false;
-  const enable = value => [model, speech, button].forEach(el => { el.disabled = !value; });
+  const enable = value => [model, speech, channelName, button].filter(Boolean).forEach(el => { el.disabled = !value; });
   const apply = data => {
-    model.value = data.settings.model;
-    speech.value = data.settings.speech_model;
+    if (model) model.value = data.settings.model;
+    if (speech) speech.value = data.settings.speech_model;
+    channelName.value = data.settings.channel_name || '';
     const status = data.readiness;
-    ready.textContent = status.cli_installed && status.speech_installed
+    if (ready) ready.textContent = status.cli_installed && status.speech_installed
       ? 'Đã cài CLI & nhận diện · dùng phiên đăng nhập agy'
       : [!status.cli_installed ? 'Chưa cài agy' : '', !status.speech_installed ? 'Chưa cài nhận diện' : ''].filter(Boolean).join(' · ');
   };
@@ -27,7 +29,8 @@ if (form) {
     try {
       const response = await fetch('/api/animation/settings', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({model: model.value.trim(), speech_model: speech.value}),
+        body: JSON.stringify({channel_name: channelName.value.trim(),
+          ...(model ? {model: model.value.trim()} : {}), ...(speech ? {speech_model: speech.value} : {})}),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Không lưu được cấu hình.');
@@ -52,5 +55,5 @@ if (form) {
     apply(data);
     loaded = true;
     enable(true);
-  }).catch(error => { ready.textContent = 'Không tải được cấu hình'; message.textContent = error.message; });
+  }).catch(error => { if (ready) ready.textContent = 'Không tải được cấu hình'; message.textContent = error.message; });
 }

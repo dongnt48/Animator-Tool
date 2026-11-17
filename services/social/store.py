@@ -60,11 +60,15 @@ class Store:
                 CREATE INDEX IF NOT EXISTS batch_video ON batches(video_id);
             ''')
             # Additive migration for schedules created by an earlier local build.
+            if 'publishing_enabled' not in {row['name'] for row in db.execute('PRAGMA table_info(accounts)')}:
+                db.execute('ALTER TABLE accounts ADD COLUMN publishing_enabled INTEGER NOT NULL DEFAULT 1')
             if 'account_identity' not in {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}:
                 db.execute("ALTER TABLE tasks ADD COLUMN account_identity TEXT NOT NULL DEFAULT ''")
             if 'cover_json' not in {row['name'] for row in db.execute('PRAGMA table_info(batches)')}:
                 db.execute("ALTER TABLE batches ADD COLUMN cover_json TEXT NOT NULL DEFAULT '{}'")
             task_columns = {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}
+            if 'actor_identity' not in task_columns:
+                db.execute("ALTER TABLE tasks ADD COLUMN actor_identity TEXT NOT NULL DEFAULT ''")
             for field in ('cover_state', 'cover_message'):
                 if field not in task_columns:
                     default = 'none' if field == 'cover_state' else ''
@@ -87,9 +91,7 @@ class Store:
             db.close()
 
     def create_batch(self, video_id, media_path, caption, scheduled_at, made_for_kids, request_key, *, cover=None, platforms=None):
-        if platforms is None:
-            targets = PLATFORMS
-        else:
+        if platforms is not None:
             if (not isinstance(platforms, (list, tuple)) or not platforms
                     or any(platform not in PLATFORMS for platform in platforms)
                     or len(set(platforms)) != len(platforms)):
@@ -141,20 +143,27 @@ class Store:
                 finally:
                     if temporary is not None:
                         temporary.unlink(missing_ok=True)
-        request_payload = [video_id, str(path), digest, caption, scheduled_at, made_for_kids]
-        if frozen_cover:
-            request_payload.append(frozen_cover)
-        if targets != PLATFORMS:
-            request_payload.append({'platforms': targets})
-        payload = json.dumps(request_payload, ensure_ascii=False, sort_keys=True)
-        request_digest = hashlib.sha256(payload.encode()).hexdigest()
         with self.transaction() as db:
             existing = db.execute('SELECT id, request_digest FROM batches WHERE request_key=?', (request_key,)).fetchone()
+            enabled = {row['platform'] for row in db.execute('SELECT platform FROM accounts WHERE publishing_enabled=1')}
+            if platforms is None:
+                targets = (tuple(row['platform'] for row in db.execute('SELECT platform FROM tasks WHERE batch_id=? ORDER BY rowid', (existing['id'],)))
+                           if existing else tuple(p for p in PLATFORMS if p in enabled))
+            if not existing and (not targets or any(p not in enabled for p in targets)):
+                raise Conflict('Bật ít nhất một nền tảng nhận bài trong Tài khoản; không chọn nền tảng đã tắt đăng.')
+            request_payload = [video_id, str(path), digest, caption, scheduled_at, made_for_kids]
+            if frozen_cover:
+                request_payload.append(frozen_cover)
+            if targets != PLATFORMS:
+                request_payload.append({'platforms': targets})
+            request_digest = hashlib.sha256(json.dumps(request_payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
             if existing:
                 if existing['request_digest'] != request_digest:
                     raise Conflict('Mã yêu cầu đã được dùng cho một lịch khác.')
                 batch_id = existing['id']
             else:
+                if db.execute("SELECT 1 FROM tasks t JOIN batches b ON b.id=t.batch_id WHERE b.video_id=? AND t.state='published' LIMIT 1", (video_id,)).fetchone():
+                    raise Conflict('Video đã đăng thành công trên ít nhất một nền tảng; không tạo lượt đăng mới.')
                 reservation = db.execute('SELECT * FROM daily_runs WHERE video_id=?', (video_id,)).fetchone()
                 if reservation is not None:
                     if reservation['request_key'] != request_key:
@@ -228,6 +237,9 @@ class Store:
 
     def save_daily(self, config, now=None):
         from .daily import validate_config
+        if isinstance(config, dict) and config.get('made_for_kids') is None:
+            if not any(a['platform'] == 'youtube' and a['publishing_enabled'] for a in self.accounts()):
+                config = {**config, 'made_for_kids': False}
         value = validate_config(config)
         value.update(active_from=time.time() if now is None else now, revision=uuid.uuid4().hex)
         with self.transaction() as db:
@@ -244,7 +256,21 @@ class Store:
 
     def accounts(self):
         with self.transaction() as db:
-            return [dict(row) for row in db.execute('SELECT * FROM accounts ORDER BY rowid')]
+            return [{**dict(row), 'publishing_enabled': bool(row['publishing_enabled'])}
+                    for row in db.execute('SELECT * FROM accounts ORDER BY rowid')]
+
+    def set_publishing_enabled(self, platform, enabled):
+        if platform not in PLATFORMS or type(enabled) is not bool:
+            raise ValueError('Nền tảng hoặc trạng thái bật/tắt đăng không hợp lệ.')
+        with self.transaction() as db:
+            db.execute('UPDATE accounts SET publishing_enabled=? WHERE platform=?', (int(enabled), platform))
+            if not enabled:
+                db.execute("UPDATE tasks SET state='cancelled',message='Đã tắt đăng nền tảng này trong Tài khoản.',updated_at=? WHERE platform=? AND state='queued'",
+                           (time.time(), platform))
+
+    def published_video_ids(self):
+        with self.transaction() as db:
+            return {row[0] for row in db.execute("SELECT DISTINCT b.video_id FROM tasks t JOIN batches b ON b.id=t.batch_id WHERE t.state='published'")}
 
     def publication_summary(self, video_ids):
         result={video_id:{} for video_id in video_ids}
@@ -321,6 +347,13 @@ class Store:
     def claim_next(self, owner, now=None):
         now = time.time() if now is None else now
         with self.transaction() as db:
+            db.execute("""UPDATE tasks SET state='cancelled',message='Record đã được đăng trong một lượt khác.',updated_at=?
+                          WHERE state='queued' AND EXISTS (
+                            SELECT 1 FROM batches current JOIN batches previous ON previous.video_id=current.video_id
+                            JOIN tasks published ON published.batch_id=previous.id
+                            WHERE current.id=tasks.batch_id AND previous.id<>current.id AND published.state='published')""", (now,))
+            db.execute("""UPDATE tasks SET state='cancelled',message='Đã tắt đăng nền tảng này trong Tài khoản.',updated_at=?
+                          WHERE state='queued' AND platform IN (SELECT platform FROM accounts WHERE publishing_enabled=0)""", (now,))
             db.execute("""UPDATE tasks SET state='needs_review',message='Đã lỡ lịch hơn 15 phút. Kiểm tra và chọn thử lại nếu muốn đăng bây giờ.',updated_at=?
                           WHERE state='queued' AND ready_at<?""", (now, now - MISFIRE_SECONDS))
             rows = db.execute('''SELECT t.*,b.media_path,b.media_hash,b.caption,b.made_for_kids,b.cover_json,a.state AS account_state,
@@ -352,9 +385,11 @@ class Store:
             db.execute("UPDATE tasks SET cover_state=?,cover_message=? WHERE id=? AND owner=? AND state IN ('running','submitting')",
                        (state, message[:500], task_id, owner))
 
-    def mark_submitting(self, task_id, owner):
+    def mark_submitting(self, task_id, owner, actor_identity=''):
+        if not isinstance(actor_identity, str) or len(actor_identity) > 100:
+            raise ValueError('Hồ sơ đăng bài không hợp lệ.')
         with self.transaction() as db:
-            result = db.execute("UPDATE tasks SET state='submitting',updated_at=? WHERE id=? AND owner=? AND state='running'", (time.time(), task_id, owner))
+            result = db.execute("UPDATE tasks SET state='submitting',actor_identity=?,updated_at=? WHERE id=? AND owner=? AND state='running'", (actor_identity, time.time(), task_id, owner))
             if not result.rowcount:
                 raise Conflict('Tác vụ không còn thuộc worker này.')
 
@@ -392,9 +427,11 @@ class Store:
     def retry(self, task_id, confirmed_not_posted=False, now=None):
         now = time.time() if now is None else now
         with self.transaction() as db:
-            row = db.execute('SELECT state FROM tasks WHERE id=?', (task_id,)).fetchone()
+            row = db.execute('SELECT t.state,a.publishing_enabled FROM tasks t JOIN accounts a ON a.platform=t.platform WHERE t.id=?', (task_id,)).fetchone()
             if row is None:
                 raise KeyError(task_id)
+            if not row['publishing_enabled']:
+                raise Conflict('Nền tảng đang tắt đăng. Bật lại trong Tài khoản trước khi thử lại.')
             if row['state'] not in ('failed', 'needs_login', 'needs_review'):
                 raise Conflict('Chỉ thử lại nền tảng bị lỗi hoặc cần kiểm tra.')
             if row['state'] == 'needs_review' and not confirmed_not_posted:

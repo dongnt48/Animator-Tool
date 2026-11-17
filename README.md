@@ -42,15 +42,39 @@ Video kiểm tra ghi vào `data/animation/check.mp4`; bản minh họa mười c
 
 ## Lên lịch đăng mạng xã hội bằng Playwright
 
+### Tên kênh trên video
+
+Vào **Tạo video → Tên kênh trên video** (cũng có trong **Hoạt hình AI**), nhập tên (tối đa 80 ký tự, một dòng) rồi **Lưu cấu hình**. Trang Tạo video cũng tự lưu thay đổi khi bấm **Tải & Dựng Ngay** hoặc **Dựng Toàn Bộ**. Tên được in mờ ở chính giữa xuyên suốt video, áp dụng cho các lượt dựng thường, tải và dựng, dựng hàng loạt và AI tiếp theo. Để trống để tắt. Video đã xuất cần dựng lại để có watermark. Khi bật watermark, dựng thường dùng engine Remotion đi kèm để bảo đảm tên kênh được in vào thành phẩm; engine ngoài cũ không có lớp này.
+
+TikTok: khi lịch có ảnh bìa của app, bộ đăng mở **Edit cover → Upload cover**, tải bản ảnh dọc đã chốt rồi **Save**. Chỉ tiếp tục xuất bản sau khi thấy ảnh mới và đã lưu trình chọn bìa. Nếu chưa xác minh được ảnh, lượt TikTok dừng trước khi bấm Đăng; không tự thay bằng khung video hoặc ảnh TikTok chọn. Áp dụng cho các lượt đăng tiếp theo, giữ nguyên các bài đã đăng.
+
+Facebook: hộp **Chọn hình thu nhỏ** được xử lý trước khi chuyển sang Cài đặt. App dùng ô tải ảnh trong đúng vùng ảnh bìa, chờ nút Lưu bật và chờ hộp đóng rồi mới bấm Tiếp. Nếu không lưu hoặc chưa xác minh được ảnh mới, trạng thái ảnh bìa được giữ là tự động/chưa xác minh, không báo đã áp dụng.
+
+### Lấy nội dung để đăng thủ công
+
+Trong **Thư viện**, bấm **tiêu đề** để copy nguyên caption đã lưu, gồm xuống dòng và hashtag (dùng tiêu đề nếu chưa có caption). Bấm phần khác của hàng để mở chi tiết. **Tải video thành phẩm** nằm dưới bản xem trước thành phẩm; **Tải ảnh bìa** lấy bản dọc/ngang theo tỉ lệ video. Chỉ hiện nút tải khi record có file tương ứng. Tải file không đánh dấu record đã đăng.
+
+### Nhận biết video đã đăng trong Thư viện
+
+Trạng thái chỉ nằm trong cột **Đã Đăng Ở Đâu**: nền tảng đã được hệ thống xác nhận có link bài; kết quả chưa rõ hiện **Chưa xác định**. Không có thao tác người dùng nhập link để xác nhận trên giao diện kết quả đăng.
+
+TikTok có thêm xác nhận từ trang **TikTok Studio → Nội dung** của đúng tài khoản. Hệ thống đối chiếu toàn bộ caption, thời điểm trong lượt đăng và ID/link bài trên danh sách Posts, không lấy link gợi ý hay bài có cùng tiêu đề rút gọn. Cơ chế này áp dụng ngay sau đăng và tự kiểm tra lại các lượt TikTok chưa rõ kết quả khi worker rảnh, tối đa một lượt kiểm tra mỗi 10 phút. Không tải lên hay bấm đăng lại khi kiểm tra. Lịch chưa từng chạy, kết quả trùng khớp nhiều bài, link đã thuộc lượt khác hoặc tài khoản đã đổi không được xác nhận. Facebook cũng tự đối chiếu bài Reel trên hồ sơ/Fanpage đã dùng: tác giả Story và chủ sở hữu Video, toàn bộ caption, thời điểm và link phải cùng khớp. Hồ sơ/Fanpage được lưu tại checkpoint trước khi bấm Đăng. Khi Facebook chuyển về bảng tin mà không có thông báo kèm link, app mở hồ sơ đã lưu để đối chiếu ngay; worker cũng kiểm tra lại các lượt chưa rõ khi rảnh. Lượt cũ thiếu hồ sơ chỉ được xử lý nếu xác minh được giá trị và thời điểm của cookie hồ sơ đã lưu; cookie mã hóa hoặc khác giá trị không đủ làm bằng chứng. Các nền tảng khác tiếp tục cần bằng chứng từ giao diện hoàn tất; nếu chưa lấy được bằng chứng, trạng thái vẫn chưa xác định và không tự đăng lại.
+
 ### Xóa video và kiểm tra trùng
 
 Nút xóa trong thư viện **xóa mềm record, xóa cứng media**: lưu `deleted_at`, ID nguồn TikTok và SHA256 file gốc, giữ ID/STT/caption/lịch sử; ẩn record khỏi thư viện, dựng video, viết caption và nguồn bài tự động. File gốc, bản render đang dùng, các biến thể render thuộc record và thumbnail/cached thumbnail được xóa trên ổ đĩa. File còn được record đang hoạt động khác dùng chung sẽ được giữ cho record đó. Không xóa video đang tải/dựng; nếu file đang bị khóa, record vẫn được giữ và API trả lỗi dọn file để có thể thử lại thao tác xóa theo ID.
 
 Tải lại kiểm tra cả record đang có và record đã xóa theo ID TikTok/URL bỏ tham số chia sẻ; sau khi tải một file mới còn so SHA256 để nhận ra nguồn qua link khác. Link trực tiếp trùng trả HTTP 409 trước khi chạy nền; quét kênh bỏ qua video đã có hoặc đã xóa. Không so theo tiêu đề/caption. Link rút gọn chưa từng gặp có thể cần tải về trước để nhận diện ID/hash; file tạm trùng được xóa, không tạo lại video trong thư viện. `GET /api/videos/check-duplicate?url=...` trả ID record và cờ đã xóa mà không tải media.
 
+Trong **Thư viện**, tích nhiều record hoặc **Chọn tất cả**, rồi bấm **Xóa đã chọn**. App xác nhận số record và việc xóa media, xử lý lần lượt và báo kết quả từng record; không cần API key AI. Record đang xử lý được giữ lại. Record lỗi vẫn được chọn nếu còn hiển thị; nút **Thử xóa lại … record lỗi** cũng xử lý được record đã ẩn nhưng còn file chưa dọn xong. Các file dùng chung vẫn được bảo vệ như khi xóa từng record.
+
 Record lưu trong `data/videos.json`; truy vấn nội bộ `get_all_videos(include_deleted=True)` hoặc `get_video(id, include_deleted=True)` có thể xem lịch sử đã xóa. Không có thao tác khôi phục media đã xóa cứng. Thay đổi áp dụng cho những lần xóa từ bản này; record từng bị xóa cứng trước đây không tự được phục hồi. Các lượt đăng đã lên lịch trước đó dùng bản sao riêng và lịch sử đăng được giữ nguyên.
 
-Hỗ trợ luồng giao diện cho **Facebook Reels trên hồ sơ cá nhân, Instagram Reels, Threads, TikTok và YouTube**. Một lịch tạo năm tác vụ riêng, dùng caption hiện có (`caption`, nếu có; mặc định là `title` kèm hashtag). Không cần nhập lại caption. Các adapter chưa được kiểm chứng trên tài khoản thật của bạn; giao diện nền tảng có thể cần điều chỉnh selector sau khi thử.
+Khi nhập link kênh TikTok (`https://www.tiktok.com/@username`), app thử quét danh sách bằng yt-dlp và dịch vụ dự phòng. Nếu chưa lấy được danh sách, app mở Google Chrome với hồ sơ TikTok riêng. Hoàn thành CAPTCHA hoặc đăng nhập thủ công khi TikTok yêu cầu, giữ cửa sổ mở; app chờ tối đa 10 phút, lấy link đúng kênh, cuộn để tìm thêm, rồi tự đóng Chrome và tiếp tục tải/dựng. Đóng Chrome sớm sẽ dừng lượt quét và hiện lỗi rõ ràng. Không tự giải CAPTCHA. Trạng thái chờ xác minh hiển thị trong tiến trình video. Hồ sơ được giữ riêng cho lượt quét để không mở trùng với đăng bài/đăng nhập; phiên và công tắc cho phép đăng được giữ nguyên. Video trùng vẫn được bỏ qua. Quét “tất cả” dừng khi danh sách không xuất hiện link mới qua nhiều lượt chờ; TikTok có thể giới hạn số video tải được trong phiên.
+
+Hỗ trợ luồng giao diện cho **Facebook Reels trên hồ sơ cá nhân, Instagram Reels, Threads, TikTok và YouTube**. Mỗi lịch tạo tác vụ riêng cho những nền tảng đang bật, dùng caption hiện có (`caption`, nếu có; mặc định là `title` kèm hashtag). Không cần nhập lại caption. Các adapter có thể cần điều chỉnh selector khi giao diện nền tảng thay đổi.
+
+Trong **Tài khoản**, công tắc **Cho phép đăng** của từng nền tảng lưu độc lập với phiên đăng nhập. Tắt nền tảng sẽ bỏ nó khỏi lịch mới và hủy tác vụ còn chờ; tác vụ đang chạy được tiếp tục, tác vụ cần kiểm tra vẫn giữ để xác minh. Bật lại không tự khôi phục tác vụ đã hủy. Khi tất cả đều tắt, không thể tạo lịch mới; lịch hằng ngày không lấy bài nếu không có nền tảng đang bật đã lưu phiên. Dữ liệu cũ mặc định bật cả năm để giữ cấu hình trước đây.
 
 Facebook hiện mở trang tạo Reels bằng hồ sơ đang hoạt động trong phiên trình duyệt đã lưu. Chưa có bộ chọn hoặc xác minh đích Fanpage riêng; hãy chuyển về hồ sơ cá nhân khi kết nối và kiểm tra đúng hồ sơ trước khi lưu phiên. Không suy ra đích đăng chỉ từ tài khoản đăng nhập.
 
@@ -60,7 +84,7 @@ Facebook hiện mở trang tạo Reels bằng hồ sơ đang hoạt động tron
 
 Tại `/publishing`, thêm các giờ trong mục **Lịch lặp hằng ngày**, chẳng hạn `08:00`, `12:00`, `19:00`. Mặc định dùng giờ Việt Nam/Bangkok (UTC+7) và **lấy ngẫu nhiên trong video chưa dùng**. Chọn đối tượng khán giả YouTube, bật **Bật đăng tự động hằng ngày**, xác nhận rồi bấm **Lưu lịch hằng ngày**. Không cần chọn video riêng cho mỗi giờ.
 
-Đến mỗi giờ, bộ đăng tự lấy một video đã dựng với caption có sẵn và tạo một lượt gồm cả năm nền tảng. Các video đã từng có lịch hoặc đã được bộ đăng giữ lại sẽ không được tự chọn lại, kể cả lượt đó lỗi/hủy; xử lý nền tảng lỗi trong lượt gốc để tránh đăng trùng. Khi hết video, khung giờ được ghi nhận là **Hết bài** và bỏ qua; video thêm sau đó được xét từ khung giờ kế tiếp.
+Đến mỗi giờ, bộ đăng tự lấy một video đã dựng với caption có sẵn và tạo một lượt cho các nền tảng đang bật trong Tài khoản. Các video đã từng có lịch hoặc đã được bộ đăng giữ lại sẽ không được tự chọn lại, kể cả lượt đó lỗi/hủy; xử lý nền tảng lỗi trong lượt gốc để tránh đăng trùng. Khi hết video, khung giờ được ghi nhận là **Hết bài** và bỏ qua; video thêm sau đó được xét từ khung giờ kế tiếp.
 
 Thay đổi cấu hình áp dụng từ khi lưu, không chạy bù các giờ trước đó. Sau khi máy tắt hoặc sleep, chỉ khung giờ gần nhất trễ không quá 15 phút mới được lấy bài; các giờ cũ được bỏ qua để không đăng dồn. Tắt tự động chỉ ngừng lấy bài mới, không hủy các lượt đã tạo. Máy và worker cần hoạt động, có mạng; các nền tảng vẫn được xử lý lần lượt. Có thể mở mục **Đặt lịch riêng cho một video (tùy chọn)** nếu muốn lên lịch thủ công.
 
@@ -73,6 +97,8 @@ Thay đổi cấu hình áp dụng từ khi lưu, không chạy bù các giờ t
 5. Chọn video đã dựng, kiểm tra video và caption, chọn ngày/giờ và đối tượng trẻ em của YouTube, xác nhận rồi bấm **Lên lịch cho cả 5 nền tảng**. YouTube dùng dòng đầu caption làm tiêu đề (tối đa 100 ký tự) và giữ toàn bộ caption trong mô tả; xuất bản công khai.
 
 Máy phải bật, không sleep và có mạng. Bộ đăng xử lý lần lượt để hạn chế tải bộ nhớ; giờ xuất hiện công khai không được đảm bảo đồng thời. Đóng trang web không hủy các lịch: bộ đăng là tiến trình riêng. Dùng **Hủy phần chưa chạy** để dừng các đích còn chờ; tác vụ đã bắt đầu không bị hủy giữa chừng.
+
+Khi đăng bài, trình duyệt dùng nhịp nghỉ 5 giây cho mỗi thao tác Playwright và vẫn kiểm tra phần tử sẵn sàng trước khi bấm/nhập. Nhịp nghỉ áp dụng cho cả năm nền tảng; không thay đổi tốc độ cửa sổ đăng nhập. Đây không phải cơ chế tránh nhận diện automation. Sau khi cập nhật mã bộ đăng, cần khởi động lại worker để nhận thay đổi.
 
 ### Trạng thái, thử lại và tránh đăng trùng
 
@@ -117,11 +143,11 @@ Kiểm tra dùng SQLite tạm, MP4 thử và Playwright headless trên trang HTM
 
 ### Trạng thái đăng và caption AI
 
-Thư viện video có cột **Đã đăng ở đâu**, hiển thị kết quả riêng cho Facebook, Instagram, Threads, TikTok và YouTube. Bài đã xuất bản có link mở bài. Trạng thái được lấy từ toàn bộ lịch sử của video; chỉ đánh dấu đã đăng khi worker có xác nhận hoặc bạn đã xác nhận thủ công bằng link bài.
+Thư viện video có cột **Đã đăng ở đâu**, chỉ hiển thị những nền tảng đã đăng thành công cùng link bài; chưa có nền tảng thành công thì hiện **Chưa đăng**. Lỗi, chờ và cần kiểm tra xem ở **Kết quả đăng**. Thành công trên bất kỳ một nền tảng nào cũng tính record đã đăng: khóa tạo lượt mới và loại khỏi lựa chọn đặt lịch. Các nền tảng còn lại trong cùng lượt vẫn chạy. Lịch trùng cũ chưa chạy bị chặn khi record đã thành công trong lượt khác. Chỉ tính thành công khi worker có xác nhận hoặc bạn xác nhận thủ công bằng link bài; **Cần kiểm tra** chưa tự được coi là đã đăng.
 
 Trong **Thư viện**, tích chọn ngay trong bảng (hoặc chọn tất cả), rồi bấm **Viết lại caption** trên thanh caption. Nút **Viết lại caption** của từng dòng chạy ngay cho video đó, không thay đổi lựa chọn hoặc chuyển màn; thao tác riêng từng dòng cho phép viết lại cả video đã viết, không phụ thuộc bộ lọc xử lý hàng loạt. Nút hiện **Đang viết…** trong khi xử lý. **AI viết thành công là lưu trực tiếp vào video, cập nhật ngay nội dung trong bảng; không có bản nháp hoặc bước duyệt/lưu thêm.** AI không tự tạo hoặc giữ hashtag cũ trong kết quả mới. Bấm tiêu đề/dòng để xem video gốc/đã dựng, thông tin dựng, caption hiện tại, lời thoại và trạng thái đăng. Vẫn có thể sửa caption thủ công ở màn chi tiết rồi bấm lưu. Nếu caption đã thay đổi trong lúc AI chạy, hệ thống báo lỗi video đó và không ghi đè. Đường dẫn `/publishing/captions` cũ vẫn dùng được để tương thích; kết quả AI ở đó cũng đã lưu trực tiếp.
 
-Nút **Lên lịch đăng** của từng dòng mở hộp chọn giờ ngay trong Thư viện: xem caption sẽ đăng, chọn thời gian, phân loại nội dung YouTube và xác nhận đăng cả 5 nền tảng. Bấm **Lưu lịch đăng** để tạo lịch mà không chuyển màn. Nếu mất phản hồi, thử lại trong cùng hộp với dữ liệu không đổi dùng cùng mã yêu cầu để tránh tạo lịch trùng. Màn Đặt lịch riêng cũ vẫn hoạt động.
+Nút **Lên lịch đăng** của từng dòng mở hộp chọn giờ ngay trong Thư viện: xem caption và các nền tảng đang bật, chọn thời gian, phân loại nội dung nếu có YouTube và xác nhận. Bấm **Lưu lịch đăng** để tạo lịch mà không chuyển màn. Nếu mất phản hồi, thử lại với dữ liệu không đổi dùng cùng mã yêu cầu để lấy lại lịch cũ, kể cả record đã đăng hoặc công tắc nền tảng đã đổi. Màn Đặt lịch riêng vẫn hoạt động.
 
 Hai màn riêng trong thanh bên: **Tạo video** (`/create`) gồm tải/dựng, cấu hình mặc định, thống kê và tiến trình xử lý; **Thư viện** (`/`) gồm bảng quản lý video, viết caption và trạng thái đăng. Màn tạo không tải phần cấu hình caption; thư viện không có ô nhập link/tải video. Các nút dựng lại từng video vẫn có trong thư viện.
 
@@ -198,14 +224,9 @@ Xem [cấu trúc thư mục hiện tại](docs/PROJECT_STRUCTURE.md).
 
 ## Trình duyệt TikTok
 
-TikTok đăng nhập và đăng tự động bằng Google Chrome chính thức đã cài trên máy, dùng chung hồ sơ riêng `data/social/profiles/tiktok-chrome/`. Sau khi chuyển từ Chromium, vào **Tài khoản → TikTok → Kết nối lại**, đăng nhập thủ công rồi **Lưu phiên**. Hồ sơ Chromium cũ được giữ nguyên; không dùng hồ sơ Chrome cá nhân. Các nền tảng khác tiếp tục dùng Chromium như trước. Cần giữ Chrome được cập nhật tương thích Playwright. Nếu TikTok vẫn yêu cầu xác minh hoặc từ chối phiên, hoàn tất theo hướng dẫn của TikTok; đổi Chrome không bảo đảm hết hạn chế đăng nhập.
+Mỗi nền tảng dùng một hồ sơ trình duyệt riêng trong `data/social/profiles/`. TikTok đăng nhập và đăng tự động bằng Google Chrome chính thức; các nền tảng khác dùng Chromium của Playwright. Cách thường dùng: vào **Tài khoản**, bấm **Kết nối**, đăng nhập thủ công trong cửa sổ vừa mở, kiểm tra đúng tài khoản rồi bấm **Lưu phiên**. Cần giữ Chrome tương thích Playwright. Nếu TikTok vẫn yêu cầu xác minh hoặc từ chối phiên, hoàn tất theo hướng dẫn của TikTok; đổi trình duyệt không bảo đảm hết hạn chế đăng nhập.
 
-Nếu chỉ đăng nhập được bằng Chrome mở độc lập, đóng cửa sổ TikTok do Studio mở rồi chạy lệnh dưới từ thư mục dự án (ví dụ Chrome cài ở Program Files). Đăng nhập thủ công, đóng Chrome, sau đó quay lại Studio **Kết nối → Lưu phiên** để dùng lại cùng hồ sơ. Máy khác cần đăng nhập lại; không copy hồ sơ đăng nhập hoặc đưa cookie lên Git.
-
-```powershell
-$tiktokProfile = Join-Path (Get-Location).Path 'data\social\profiles\tiktok-chrome'
-& "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" "--user-data-dir=$tiktokProfile" 'https://www.tiktok.com/login'
-```
+Nếu cửa sổ Studio gặp lỗi, vào **Tài khoản → nền tảng → Mở trình duyệt để đăng nhập**. Nút mở Chrome cho TikTok hoặc Chromium cho nền tảng khác bằng đúng hồ sơ riêng của nền tảng đó. Đăng nhập thủ công rồi đóng trình duyệt hoàn toàn; quay lại Studio bấm **Kết nối** (hoặc **Kết nối lại**), kiểm tra tài khoản trong cửa sổ mới mở và bấm **Lưu phiên**. Hồ sơ đăng nhập nằm riêng trên từng máy; máy mới cần đăng nhập lại. Không copy hồ sơ này sang máy khác hoặc đưa cookie lên Git.
 
 Bộ đăng xử lý hai hộp giới thiệu TikTok đã nhận diện và đối chiếu caption trước khi bấm đăng để tránh tên file tự chèn vào mô tả. Nếu TikTok chuyển thẳng sang danh sách bài nhưng app chưa lấy được link, tác vụ chuyển **Cần kiểm tra**. Mở TikTok Studio xác minh bài và bổ sung link; không thử lại khi chưa biết bài đã được đăng hay chưa. Lượt thử riêng nền tảng có thể dùng `Store.create_batch(..., platforms=['tiktok'])`; giao diện lịch và lịch tự động mặc định vẫn chọn cả năm nền tảng.
 

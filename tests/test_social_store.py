@@ -1,4 +1,5 @@
 import tempfile
+import sqlite3
 import unittest
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -21,6 +22,86 @@ class StoreTests(unittest.TestCase):
     def connect(self, platform):
         owner = self.store.begin_login(platform, now=900)
         self.store.complete_login(platform, owner, 'account-one', now=901)
+
+    def test_platform_toggle_persists_without_losing_login(self):
+        self.connect('facebook')
+        self.store.set_publishing_enabled('facebook', False)
+        account = next(a for a in Store(self.store.path).accounts() if a['platform'] == 'facebook')
+        self.assertFalse(account['publishing_enabled'])
+        self.assertEqual(account['state'], 'connected')
+        self.assertEqual(account['identity'], 'account-one')
+        for platform, value in [('unknown', False), ('facebook', 'false'), ('facebook', 0)]:
+            with self.assertRaises(ValueError):
+                self.store.set_publishing_enabled(platform, value)
+
+    def test_existing_database_migrates_enabled_without_changing_saved_account(self):
+        path = self.root / 'old.sqlite3'
+        with sqlite3.connect(path) as db:
+            db.execute("CREATE TABLE accounts (platform TEXT PRIMARY KEY,state TEXT,identity TEXT,message TEXT,lease_owner TEXT,lease_until REAL)")
+            db.execute("INSERT INTO accounts VALUES ('facebook','connected','saved-account','saved',NULL,0)")
+        migrated = Store(path)
+        facebook = next(a for a in migrated.accounts() if a['platform'] == 'facebook')
+        self.assertTrue(facebook['publishing_enabled'])
+        self.assertEqual(facebook['identity'], 'saved-account')
+
+    def test_disable_preserves_uncertain_tasks_for_manual_review(self):
+        batch = self.batch()
+        with self.store.transaction() as db:
+            db.execute("UPDATE tasks SET state='needs_review' WHERE batch_id=? AND platform='facebook'", (batch['id'],))
+        self.store.set_publishing_enabled('facebook', False)
+        task = next(t for t in self.store.get_batch(batch['id'])['tasks'] if t['platform'] == 'facebook')
+        self.assertEqual(task['state'], 'needs_review')
+
+    def test_explicit_disabled_destination_is_rejected(self):
+        self.store.set_publishing_enabled('tiktok', False)
+        with self.assertRaises(Conflict):
+            self.store.create_batch('one', self.media, 'caption', 1000, False, 'explicit', platforms=['tiktok'])
+
+    def test_disabled_platform_is_excluded_and_existing_request_is_recoverable(self):
+        original = self.batch()
+        self.store.set_publishing_enabled('instagram', False)
+        self.assertEqual(self.batch()['id'], original['id'])
+        new = self.store.create_batch('other', self.media, 'Caption', 1000, False, 'other')
+        self.assertNotIn('instagram', [t['platform'] for t in new['tasks']])
+        for platform in PLATFORMS:
+            self.store.set_publishing_enabled(platform, False)
+        with self.assertRaises(Conflict):
+            self.store.create_batch('third', self.media, 'Caption', 1000, False, 'third')
+
+    def test_disabling_cancels_only_queued_tasks_and_blocks_retry(self):
+        self.batch()
+        self.connect('facebook')
+        task = self.store.claim_next('worker', now=1000)
+        self.store.set_publishing_enabled('facebook', False)
+        self.assertEqual(self.store.task_state(task['id']), 'running')
+        self.store.finish(task['id'], 'worker', 'failed', 'Failure before publish')
+        with self.assertRaises(Conflict):
+            self.store.retry(task['id'], now=1001)
+        self.store.set_publishing_enabled('instagram', False)
+        instagram = next(t for t in self.store.get_batch(task['batch_id'])['tasks'] if t['platform'] == 'instagram')
+        self.assertEqual(instagram['state'], 'cancelled')
+
+    def test_one_success_blocks_new_batches_but_preserves_original_destinations(self):
+        first = self.batch()
+        self.connect('facebook')
+        self.connect('tiktok')
+        task = self.store.claim_next('worker', now=1000)
+        self.store.mark_submitting(task['id'], 'worker')
+        self.store.finish(task['id'], 'worker', 'published', 'OK', 'https://www.facebook.com/reel/12345')
+        self.assertEqual(self.batch()['id'], first['id'])
+        with self.assertRaises(Conflict):
+            self.batch('new-request')
+        self.assertEqual(self.store.claim_next('worker', now=1001)['platform'], 'tiktok')
+
+    def test_success_in_one_batch_prevents_an_older_duplicate_batch_running(self):
+        first = self.batch()
+        duplicate = self.batch('older-duplicate')
+        self.connect('facebook')
+        task = self.store.claim_next('worker', now=1000)
+        self.store.mark_submitting(task['id'], 'worker')
+        self.store.finish(task['id'], 'worker', 'published', 'OK', 'https://www.facebook.com/reel/12345')
+        self.assertIsNone(self.store.claim_next('worker', now=1001))
+        self.assertTrue(all(t['state'] == 'cancelled' for t in self.store.get_batch(duplicate['id'])['tasks']))
 
     def test_schedule_snapshots_caption_and_creates_five_independent_targets(self):
         batch = self.batch()

@@ -27,6 +27,7 @@ services/
     thumbnails.py              Safe local video frame extraction and fingerprinted JPEG cache
     routes.py                  Publishing JSON API and process startup
     store.py                   SQLite schedules, sessions, reservations
+    profiles.py                Per-platform browser profiles and executable discovery
     daily.py                   Recurring hours and unused-video selection
     browser.py                 Playwright platform upload flows
     login.py                   Manual login process

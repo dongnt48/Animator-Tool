@@ -170,6 +170,38 @@ class AnimationRouteTests(unittest.TestCase):
         check.start(); self.addCleanup(check.stop)
         self.client = studio.app.test_client()
 
+    def test_channel_name_persists_and_rejects_invalid_updates(self):
+        self.assertEqual(self.client.get('/api/animation/settings').json['settings'].get('channel_name'), '')
+        response = self.client.post('/api/animation/settings', json={'channel_name': '  Kỷ Luật & Tôi  '})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get('/api/animation/settings').json['settings']['channel_name'], 'Kỷ Luật & Tôi')
+        for value in (None, True, 5, 'a' * 81, 'hai\ndòng', 'tên\x00kênh'):
+            with self.subTest(value=value):
+                self.assertEqual(self.client.post('/api/animation/settings', json={'channel_name': value}).status_code, 400)
+                self.assertEqual(self.client.get('/api/animation/settings').json['settings']['channel_name'], 'Kỷ Luật & Tôi')
+        self.assertEqual(self.client.post('/api/animation/settings', json={'channel_name': '  '}).status_code, 200)
+        self.assertEqual(self.client.get('/api/animation/settings').json['settings']['channel_name'], '')
+
+    def test_all_render_routes_snapshot_channel_name_without_enabling_ai_in_legacy(self):
+        settings.save_settings(self.store, {'channel_name': 'Kênh Của Tôi'})
+        video = {'id': 'one', 'stt': 1, 'status': 'new', 'video_filename': 'source.mp4'}
+        with patch.object(self.studio, 'get_video', return_value=video), \
+             patch.object(self.studio, 'get_all_videos', return_value=[video]), \
+             patch('services.animation.routes.database.get_video', return_value=video), \
+             patch('services.animation.routes.database.update_video_status'), \
+             patch.object(self.studio, 'update_video_status'), \
+             patch.object(self.studio.threading, 'Thread') as thread:
+            for path, body in [('/api/render/one', {}), ('/api/render-all', {}),
+                               ('/api/download-and-render', {'url': 'https://www.tiktok.com/@test/video/1'})]:
+                self.assertEqual(self.client.post(path, json=body).status_code, 200)
+                config = thread.call_args.kwargs['args'][-1]
+                self.assertEqual(config['channel_name'], 'Kênh Của Tôi')
+                self.assertEqual(config['mode'], 'legacy')
+            self.assertEqual(self.client.post('/api/animation/render/one', json={}).status_code, 200)
+            config = thread.call_args.kwargs['kwargs']['animation_settings']
+            self.assertEqual(config['channel_name'], 'Kênh Của Tôi')
+            self.assertEqual(config['mode'], 'antigravity')
+
     def test_settings_round_trip_bad_body_and_no_ai_calls(self):
         with patch.object(planner, 'request_storyboard', side_effect=AssertionError('No generation on settings')):
             self.assertEqual(self.client.get('/api/animation/settings').json['settings']['mode'], 'antigravity')
@@ -202,7 +234,8 @@ class AnimationRouteTests(unittest.TestCase):
         self.assertEqual(self.client.get('/animation').status_code, 200)
         for path in ('/', '/create'):
             text = self.client.get(path).get_data(as_text=True)
-            self.assertNotIn('id="animationSettingsForm"', text)
+            self.assertNotIn('id="animationModel"', text)
+            self.assertNotIn('id="animationRenderForm"', text)
         video = {'id': 'one', 'stt': 1, 'status': 'completed', 'video_filename': 'source.mp4'}
         with patch.object(self.studio, 'get_video', return_value=video), \
              patch('services.animation.routes.database.get_video', return_value=video), \
@@ -268,8 +301,13 @@ class AnimationPipelineTests(unittest.TestCase):
         events = []
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); (root/'source.mp4').write_bytes(b'source')
+            external = root/'external'; (external/'src').mkdir(parents=True)
+            (external/'src/index.ts').write_text('// legacy engine without watermark support')
             video = {'id': 'one', 'video_filename': 'source.mp4'}
             def render(command, **kwargs):
+                self.assertEqual(Path(kwargs['cwd']), root)
+                props = json.loads((Path(kwargs['cwd']) / command[6].split('=', 1)[1]).read_text())
+                self.assertEqual(props.get('watermarkText'), 'Kênh Việt')
                 Path(command[5]).write_bytes(b'new output')
                 return SimpleNamespace(returncode=0)
             with patch.object(renderer.database, 'get_video', return_value=video), \
@@ -278,12 +316,12 @@ class AnimationPipelineTests(unittest.TestCase):
                  patch.object(renderer, 'DOWNLOADS_DIR', tmp), \
                  patch.object(renderer, 'OUTPUTS_DIR', tmp), \
                  patch.object(renderer, 'REMOTION_DIR', tmp), \
-                 patch.object(renderer, 'LEGACY_REMOTION_DIR', tmp), \
+                 patch.object(renderer, 'LEGACY_REMOTION_DIR', str(external)), \
                  patch.object(renderer.transcriber, 'extract_audio'), \
                  patch.object(renderer.transcriber, 'transcribe_audio_segments', return_value=([{'start': 0, 'end': 1, 'text': 'hello'}], 1)), \
                  patch.object(planner, 'prepare_animation', side_effect=AssertionError('No AI')), \
                  patch.object(renderer.subprocess, 'run', side_effect=render):
-                self.assertTrue(renderer.render_video_pipeline('one', animation_settings={'mode': 'legacy'}))
+                self.assertTrue(renderer.render_video_pipeline('one', animation_settings={'mode': 'legacy', 'channel_name': 'Kênh Việt'}))
             self.assertTrue(any(p.name.startswith('cozy_') for p in root.glob('*.mp4')))
             self.assertLess(events.index('cover'), events.index('completed'))
 

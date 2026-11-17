@@ -32,6 +32,36 @@ class RoutesTests(unittest.TestCase):
         payload.update(changes)
         return payload
 
+    def test_account_publishing_toggle_controls_schedule_targets(self):
+        response = self.client.post('/api/social/accounts/instagram/publishing', json={'enabled': False})
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post('/api/social/batches', json=self.payload())
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn('instagram', [t['platform'] for t in response.json['batch']['tasks']])
+        for body in ({}, {'enabled': 'false'}, {'enabled': 1}):
+            self.assertEqual(self.client.post('/api/social/accounts/facebook/publishing', json=body).status_code, 400)
+        self.assertEqual(self.client.post('/api/social/accounts/unknown/publishing', json={'enabled': False}).status_code, 400)
+
+    def test_confirmed_destinations_are_idempotent_in_any_order_and_cannot_change(self):
+        payload = self.payload(platforms=['tiktok', 'facebook'])
+        first = self.client.post('/api/social/batches', json=payload)
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(self.client.post('/api/social/batches', json=payload).status_code, 201)
+        self.assertEqual(self.client.post('/api/social/batches', json={**payload, 'platforms': ['tiktok']}).status_code, 409)
+        for targets in (None, [], ['unknown'], ['facebook', 'facebook'], 'facebook'):
+            self.assertEqual(self.client.post('/api/social/batches', json=self.payload(request_key='invalid-platforms', platforms=targets)).status_code, 400)
+
+    def test_successful_video_disappears_from_schedule_choices(self):
+        payload = self.payload()
+        batch = self.client.post('/api/social/batches', json=payload).json['batch']
+        with self.store.transaction() as db:
+            db.execute("UPDATE tasks SET state='published',url='https://www.facebook.com/reel/12345' WHERE batch_id=? AND platform='facebook'", (batch['id'],))
+        with patch('database.get_all_videos', return_value=[self.video]):
+            self.assertEqual(self.client.get('/api/social/status').json['videos'], [])
+        response = self.client.post('/api/social/batches', json={**payload, 'request_key': 'new-request-123'})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.client.post('/api/social/batches', json=payload).status_code, 201)
+
     def test_creates_all_targets_and_uses_existing_caption(self):
         response = self.client.post('/api/social/batches', json=self.payload())
         self.assertEqual(response.status_code, 201, response.get_data(as_text=True))

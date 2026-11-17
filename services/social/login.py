@@ -7,6 +7,11 @@ from .browser import HOME, account_identity
 from .profiles import launch_profile
 
 
+def target_closed(error):
+    message = str(error).lower()
+    return 'has been closed' in message or 'target closed' in message
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('platform', choices=PLATFORMS)
@@ -26,13 +31,24 @@ def main():
                     account = next(a for a in store.accounts() if a['platform'] == platform)
                     if account['lease_owner'] != owner or account['lease_until'] <= time.time():
                         raise RuntimeError('Đã hết 20 phút kết nối. Hãy mở đăng nhập lại.')
-                    if not context.pages:
-                        raise RuntimeError('Cửa sổ đã đóng trước khi lưu phiên.')
+                    try:
+                        pages = context.pages
+                    except Exception as exc:
+                        if target_closed(exc):
+                            raise RuntimeError('Cửa sổ đăng nhập đã đóng trước khi lưu phiên. Hãy bấm Kết nối để thử lại.') from None
+                        raise
+                    if not pages:
+                        raise RuntimeError('Cửa sổ đăng nhập đã đóng trước khi lưu phiên. Hãy bấm Kết nối để thử lại.')
                     if account['state'] == 'cancel_requested':
                         raise RuntimeError('Đã hủy kết nối. Phiên này chưa được kích hoạt.')
                     if account['state'] == 'save_requested':
-                        page = context.pages[0]
-                        identity = account_identity(platform, context.cookies(), page)
+                        page = pages[0]
+                        try:
+                            identity = account_identity(platform, context.cookies(), page)
+                        except Exception as exc:
+                            if target_closed(exc):
+                                raise RuntimeError('Cửa sổ đăng nhập đã đóng trước khi lưu phiên. Hãy bấm Kết nối để thử lại.') from None
+                            raise
                         if not identity:
                             raise RuntimeError('Chưa xác nhận được phiên và tài khoản. Đăng nhập xong, mở hồ sơ/kênh của bạn rồi lưu lại.')
                         # Flush the persistent profile BEFORE releasing its lease.
@@ -40,8 +56,7 @@ def main():
                         context = None
                         store.complete_login(platform, owner, identity)
                         return
-                    page = context.pages[0]
-                    page.wait_for_timeout(500)
+                    time.sleep(0.5)
             finally:
                 if context is not None:
                     context.close()

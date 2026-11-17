@@ -1,5 +1,6 @@
 import { $, names, element, notice, api, badge, action, refresh, startPolling } from '../core.js';
 let dailyDirty = false; let dailyTimes = []; let dailyConfigSignature = '';
+let youtubeEnabled = true;
   function drawDailyTimes() {
     const fragment = document.createDocumentFragment();
     for (const value of dailyTimes) {
@@ -13,7 +14,7 @@ let dailyDirty = false; let dailyTimes = []; let dailyConfigSignature = '';
   }
   function dailyRequirements() {
     $('dailyConfirm').required = $('dailyEnabled').checked;
-    $('dailyAudience').required = $('dailyEnabled').checked;
+    $('dailyAudience').required = $('dailyEnabled').checked && youtubeEnabled;
     $('dailySettingsSummary').textContent = `${$('dailySelection').value === 'random' ? 'Ngẫu nhiên' : 'Bài cũ trước'} · ${$('dailyTimezone').value === 'UTC' ? 'UTC' : 'UTC+7'}`;
   }
   function renderDaily(daily) {
@@ -42,7 +43,7 @@ let dailyDirty = false; let dailyTimes = []; let dailyConfigSignature = '';
     for (const run of daily.runs.slice(0,8)) {
       const row = element('div', undefined, 'daily-run');
       row.append(element('strong', `${format(run.slot_at)} · ${outcomes[run.state] || run.state}`), element('p', run.message, 'hint'));
-      if (run.batch_id) {const link = element('a','Xem kết quả 5 nền tảng ↓'); link.href = `/publishing/results#batch-${run.batch_id}`; row.append(link);}
+      if (run.batch_id) {const link = element('a','Xem kết quả đăng ↓'); link.href = `/publishing/results#batch-${run.batch_id}`; row.append(link);}
       runs.append(row);
     }
     if (!daily.runs.length) runs.append(element('p','Chưa đến khung giờ tự động nào.', 'hint'));
@@ -67,4 +68,10 @@ let dailyDirty = false; let dailyTimes = []; let dailyConfigSignature = '';
     finally {$('saveDaily').disabled = false;}
   });
 
-startPolling(data => renderDaily(data.daily));
+startPolling(data => {
+  const targets = data.accounts.filter(account => account.publishing_enabled !== false).map(account => account.platform);
+  youtubeEnabled = targets.includes('youtube');
+  $('dailyYoutubeOptions').hidden = !youtubeEnabled;
+  $('dailyDestinations').textContent = targets.length ? `Đang bật: ${targets.map(platform => names[platform]).join(', ')}.` : 'Chưa bật nền tảng nhận bài. Vào Tài khoản để bật đăng.';
+  renderDaily(data.daily); dailyRequirements();
+});

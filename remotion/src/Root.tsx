@@ -2,9 +2,12 @@ import React from 'react';
 import {Composition} from 'remotion';
 import {CozyStorytellingVideo, CozyStorytellingProps} from './CozyStorytellingVideo';
 import {DialogueStoryVideo} from './DialogueStoryVideo';
+import {ChannelWatermark} from './ChannelWatermark';
 
-const StudioVideo: React.FC<CozyStorytellingProps> = props => props.timedDialogue
-  ? <DialogueStoryVideo {...props} /> : <CozyStorytellingVideo {...props} />;
+const StudioVideo: React.FC<CozyStorytellingProps> = props => <>
+  {props.timedDialogue ? <DialogueStoryVideo {...props} /> : <CozyStorytellingVideo {...props} />}
+  <ChannelWatermark text={props.watermarkText} />
+</>;
 
 export const Root: React.FC = () => (
   <Composition id="CozyStorytellingVideo" component={StudioVideo}

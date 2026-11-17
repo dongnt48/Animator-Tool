@@ -33,7 +33,7 @@ def finish_caption(text,hashtags):
     clean=without_hashtags(text)
     if not clean:
         raise ValueError('AI không trả về nội dung caption ngoài hashtag.')
-    result=clean+('\n\n'+hashtags if hashtags else '')
+    result=clean+('\n'+hashtags if hashtags else '')
     if len(result)>10000:
         raise ValueError('Caption kèm hashtag vượt 10.000 ký tự.')
     return result

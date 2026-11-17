@@ -64,10 +64,148 @@ class PublishingUITests(unittest.TestCase):
         self.page.goto(f'http://127.0.0.1:{self.server.server_port}/publishing?video=one')
         self.page.locator('#videoSelect option[value=one]').wait_for(state='attached')
 
+    def test_channel_watermark_settings_save_and_reload_without_ai_dependencies(self):
+        from playwright.sync_api import expect
+        with patch('services.animation.routes.readiness', return_value={'cli_installed': False, 'speech_installed': False}):
+            self.page.goto(f'http://127.0.0.1:{self.server.server_port}/animation')
+            field = self.page.locator('#animationChannelName')
+            expect(field).to_be_enabled()
+            field.fill('  @Kỷ Luật & Tôi  ')
+            self.page.locator('#saveAnimationSettings').click()
+            expect(self.page.locator('#animationSettingsMessage')).to_contain_text('Đã lưu')
+            self.page.reload()
+            expect(field).to_have_value('@Kỷ Luật & Tôi')
+            field.fill('')
+            self.page.locator('#saveAnimationSettings').click()
+            expect(self.page.locator('#animationSettingsMessage')).to_contain_text('Đã lưu')
+            self.page.reload()
+            expect(field).to_have_value('')
+        self.assertEqual(self.errors, [])
+
+    def test_create_channel_name_saves_before_queueing_render_and_shares_ai_setting(self):
+        from playwright.sync_api import expect
+        from services.animation.settings import save_settings, load_settings
+        save_settings(self.store, {'channel_name': 'Tên cũ', 'model': 'existing-model'})
+        queued_names = []
+        def queue(route):
+            queued_names.append(load_settings(self.store)['channel_name'])
+            route.fulfill(status=200, content_type='application/json', body='{"status":"success"}')
+        self.page.route('**/api/download-and-render', queue)
+        with patch('services.animation.routes.readiness', return_value={'cli_installed': False, 'speech_installed': False}):
+            self.page.goto(f'http://127.0.0.1:{self.server.server_port}/create')
+            field = self.page.locator('#animationChannelName')
+            expect(field).to_have_value('Tên cũ', timeout=3000)
+            field.fill('@Kênh Mới')
+            self.page.locator('#inputUrl').fill('https://www.tiktok.com/@test/video/12345')
+            self.page.locator('#btnDownloadAndRender').click()
+            expect(self.page.locator('#inputUrl')).to_have_value('')
+            self.assertEqual(queued_names, ['@Kênh Mới'])
+            self.assertEqual(load_settings(self.store)['model'], 'existing-model')
+            self.page.goto(f'http://127.0.0.1:{self.server.server_port}/animation')
+            expect(self.page.locator('#animationChannelName')).to_have_value('@Kênh Mới')
+        self.assertEqual(self.errors, [])
+
     def close_server(self):
         self.server.shutdown()
         self.thread.join(timeout=3)
         self.server.server_close()
+
+    def bulk_delete_fixture(self):
+        import database
+        self.lookup.stop(); self.single.stop()
+        root = Path(self.tmp.name)
+        downloads = root/'downloads'; downloads.mkdir()
+        static = root/'static'; (static/'thumbnails').mkdir(parents=True)
+        for owner, name, value in [(database, 'DB_FILE', str(root/'bulk-videos.json')),
+                                    (studio, 'DOWNLOADS_DIR', str(downloads)),
+                                    (studio, 'STATIC_DIR', str(static))]:
+            item = patch.object(owner, name, value); item.start(); self.addCleanup(item.stop)
+        records = []
+        for index in range(1, 4):
+            original = f'tiktok_{10000+index}.mp4'; output = f'bulk_{index}.mp4'
+            (downloads/original).write_bytes(self.video_bytes)
+            (Path(studio.OUTPUTS_DIR)/output).write_bytes(self.video_bytes)
+            records.append({'id':f'bulk_{index}', 'stt':index, 'title':f'Video {index}', 'status':'completed',
+                            'video_filename':original, 'output_filename':output})
+        database._save_data(records)
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/')
+        from playwright.sync_api import expect
+        expect(self.page.locator('[data-caption-video]')).to_have_count(3)
+        return downloads
+
+    def test_bulk_delete_cancel_partial_success_and_retry_busy_record(self):
+        import database
+        from playwright.sync_api import expect
+        downloads = self.bulk_delete_fixture()
+        database.update_video_status('bulk_2', 'processing')
+        button = self.page.get_by_role('button', name='Xóa đã chọn', exact=True)
+        expect(button).to_be_disabled()
+        for index in (1, 2):
+            self.page.locator(f'[data-caption-video="bulk_{index}"]').check()
+        expect(button).to_be_enabled()
+        self.page.once('dialog', lambda dialog: dialog.dismiss())
+        button.click()
+        self.assertEqual(len(database.get_all_videos()), 3)
+        self.page.once('dialog', lambda dialog: dialog.accept())
+        button.click()
+        expect(self.page.locator('#bulkDeleteFeedback')).to_contain_text('Đã xóa 1/2 record')
+        self.assertIsNone(database.get_video('bulk_1'))
+        self.assertFalse((downloads/'tiktok_10001.mp4').exists())
+        self.assertIsNotNone(database.get_video('bulk_3'))
+        expect(self.page.locator('[data-caption-video="bulk_2"]')).to_be_checked()
+        database.update_video_status('bulk_2', 'completed')
+        self.page.once('dialog', lambda dialog: dialog.accept())
+        self.page.get_by_role('button', name='Thử xóa lại 1 record lỗi').click()
+        expect(self.page.locator('#bulkDeleteFeedback')).to_contain_text('Đã xóa 1/1 record')
+        self.assertIsNone(database.get_video('bulk_2'))
+        self.assertTrue((downloads/'tiktok_10003.mp4').exists())
+
+    def test_bulk_select_all_deletes_records_without_caption_api_key(self):
+        import database
+        from playwright.sync_api import expect
+        self.bulk_delete_fixture()
+        self.page.locator('#captionSelectAll').check()
+        expect(self.page.locator('#captionSelectedCount')).to_have_text('3 đã chọn')
+        self.page.once('dialog', lambda dialog: dialog.accept())
+        self.page.get_by_role('button', name='Xóa đã chọn', exact=True).click()
+        expect(self.page.locator('#bulkDeleteFeedback')).to_contain_text('Đã xóa 3/3 record')
+        expect(self.page.locator('[data-caption-video]')).to_have_count(0)
+        self.assertEqual(database.get_all_videos(), [])
+        self.assertEqual(len(database.get_all_videos(include_deleted=True)), 3)
+
+    def test_bulk_delete_network_failure_continues_and_retains_failed_selection(self):
+        import database
+        from playwright.sync_api import expect
+        self.bulk_delete_fixture()
+        for index in (1, 2):
+            self.page.locator(f'[data-caption-video="bulk_{index}"]').check()
+        self.page.route('**/api/video/bulk_1', lambda route: route.abort())
+        self.page.once('dialog', lambda dialog: dialog.accept())
+        self.page.get_by_role('button', name='Xóa đã chọn', exact=True).click()
+        expect(self.page.locator('#bulkDeleteFeedback')).to_contain_text('Đã xóa 1/2 record')
+        self.assertIsNotNone(database.get_video('bulk_1'))
+        self.assertIsNone(database.get_video('bulk_2'))
+        expect(self.page.locator('[data-caption-video="bulk_1"]')).to_be_checked()
+        expect(self.page.get_by_role('button', name='Thử xóa lại 1 record lỗi')).to_be_enabled()
+
+    def test_bulk_delete_cleanup_pending_can_retry_after_record_disappears(self):
+        import database
+        from playwright.sync_api import expect
+        self.bulk_delete_fixture()
+        def pending(route):
+            route.fetch()
+            route.fulfill(status=503, json={'status':'error','cleanup_pending':True,'message':'Còn file đang khóa'})
+        self.page.route('**/api/video/bulk_1', pending)
+        self.page.locator('[data-caption-video="bulk_1"]').check()
+        self.page.once('dialog', lambda dialog: dialog.accept())
+        self.page.get_by_role('button', name='Xóa đã chọn', exact=True).click()
+        expect(self.page.locator('#bulkDeleteFeedback')).to_contain_text('Còn file đang khóa')
+        expect(self.page.locator('[data-caption-video="bulk_1"]')).to_have_count(0)
+        self.page.unroute('**/api/video/bulk_1', pending)
+        self.page.once('dialog', lambda dialog: dialog.accept())
+        self.page.get_by_role('button', name='Thử xóa lại 1 record lỗi').click()
+        expect(self.page.locator('#bulkDeleteFeedback')).to_contain_text('Đã xóa 1/1 record')
+        self.assertIsNone(database.get_video('bulk_1'))
 
     def test_cover_editor_upload_retitle_and_mobile_layout(self):
         import io
@@ -251,6 +389,29 @@ class PublishingUITests(unittest.TestCase):
         expect(self.page.locator('#dailyForm')).to_be_visible()
         self.assertEqual(self.errors,[])
 
+    def test_create_page_custom_limit_selection_sends_custom_quantity(self):
+        from playwright.sync_api import expect
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/create')
+        expect(self.page.locator('#inputLimit')).to_be_visible()
+        expect(self.page.locator('#inputLimitCustom')).not_to_be_visible()
+        self.page.locator('#inputLimit').select_option('custom')
+        expect(self.page.locator('#inputLimitCustom')).to_be_visible()
+        self.page.locator('#inputLimitCustom').fill('25')
+
+        render_requests = []
+        self.page.route('**/api/download-and-render', lambda route: (
+            render_requests.append(route.request.post_data_json),
+            route.fulfill(status=200, content_type='application/json', body='{"status":"success","message":"OK"}')
+        ))
+        self.page.locator('#inputUrl').fill('https://www.tiktok.com/@test/video/99999')
+        self.page.locator('#btnDownloadAndRender').click()
+        self.assertEqual(len(render_requests), 1)
+        self.assertEqual(render_requests[0]['limit'], 25)
+
+        self.page.locator('#inputLimit').select_option('10')
+        expect(self.page.locator('#inputLimitCustom')).not_to_be_visible()
+        self.assertEqual(self.errors, [])
+
     def test_ai_caption_preview_requires_explicit_save_and_keeps_original_title(self):
         from playwright.sync_api import expect
         import database
@@ -305,6 +466,91 @@ class PublishingUITests(unittest.TestCase):
         self.assertEqual(database.get_video('204')['caption'],'AI 204')
         self.assertEqual(self.errors,[])
 
+    def test_library_copies_saved_caption_and_downloads_output_and_matching_cover(self):
+        import database
+        import io
+        from PIL import Image
+        from services.covers import images
+        from playwright.sync_api import expect
+        self.bulk_delete_fixture()
+        cover_root = Path(self.tmp.name)/'covers'
+        config = patch.dict(studio.app.config, COVERS_DIR=cover_root)
+        config.start(); self.addCleanup(config.stop)
+        caption = "Caption đã lưu & <b>nguyên văn</b>\n#hashtag"
+        records = database._load_data()
+        records[0]['caption'] = caption
+        records[1]['aspect_ratio'] = '16:9'
+        records[2].pop('output_filename')
+        database._save_data(records)
+        payload = io.BytesIO(); Image.new('RGB', (100, 100), 'orange').save(payload, 'PNG')
+        for video_id in ('bulk_1', 'bulk_2'):
+            images.save_cover(video_id, payload.getvalue(), 'Ảnh bìa có chữ', cover_root, mode='upload')
+        self.page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
+        self.page.reload()
+        first = self.page.locator('tr[data-video-detail="/videos/bulk_1"]')
+        first.locator('.library-title-link').click()
+        expect(first.get_by_role('button', name='Copy caption', exact=True)).to_have_count(0)
+        expect(first.get_by_role('link', name='Xem trên TikTok', exact=True)).to_have_count(0)
+        expect(first.locator('[data-publication-status]')).to_have_count(0)
+        expect(self.page.locator('#toastContainer')).to_contain_text('Đã copy caption')
+        self.assertEqual(self.page.evaluate('navigator.clipboard.readText()'), caption)
+        with self.page.expect_download() as info:
+            first.get_by_role('link', name='Tải video thành phẩm', exact=True).click()
+        self.assertEqual(Path(info.value.path()).read_bytes(), self.video_bytes)
+        for video_id, shape in [('bulk_1', 'portrait'), ('bulk_2', 'landscape')]:
+            row = self.page.locator(f'tr[data-video-detail="/videos/{video_id}"]')
+            with self.page.expect_download() as info:
+                row.get_by_role('link', name='Tải ảnh bìa', exact=True).click()
+            expected = images.cover_path(database.get_video(video_id)['cover'], shape, cover_root).read_bytes()
+            self.assertEqual(Path(info.value.path()).read_bytes(), expected)
+        missing = self.page.locator('tr[data-video-detail="/videos/bulk_3"]')
+        expect(missing.get_by_role('link', name='Tải ảnh bìa', exact=True)).to_have_count(0)
+        expect(missing.get_by_role('link', name='Tải video thành phẩm', exact=True)).to_have_count(0)
+        self.assertEqual(self.errors, [])
+
+    def test_library_shows_confirmed_and_unknown_outcomes_only_in_publication_column(self):
+        from playwright.sync_api import expect
+        import time
+        videos = [{'id': name, 'stt': index, 'title': name, 'status': 'completed', 'output_filename': 'ready.mp4'}
+                  for index, name in enumerate(('published', 'review', 'fresh'), 1)]
+        library = patch.object(studio, 'get_all_videos', return_value=videos)
+        library.start(); self.addCleanup(library.stop)
+        content = patch('database.get_all_videos', return_value=videos)
+        content.start(); self.addCleanup(content.stop)
+        owner = self.store.begin_login('tiktok'); self.store.complete_login('tiktok', owner, 'account')
+        now = time.time()
+        for name, state, url in [('published', 'published', 'https://www.tiktok.com/@owner/video/12345'),
+                                  ('review', 'needs_review', '')]:
+            self.store.create_batch(name, str(Path(studio.OUTPUTS_DIR)/'ready.mp4'), name, now, False, name, platforms=['tiktok'])
+            task = self.store.claim_next('worker', now=now)
+            self.store.mark_submitting(task['id'], 'worker')
+            self.store.finish(task['id'], 'worker', state, 'Needs confirmation' if not url else 'OK', url)
+        self.page.clock.install()
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/')
+        expect(self.page.locator('[data-publication-status]')).to_have_count(0)
+        expect(self.page.locator('#publicationFilter')).to_have_count(0)
+        expect(self.page.locator('#publicationSummary')).to_have_count(0)
+        expect(self.page.locator('.library-posting-status')).to_have_count(0)
+        review = self.page.locator('tr[data-video-detail="/videos/review"]')
+        expect(review.locator('.publication-chips')).to_contain_text('TikTok · Chưa xác định')
+        expect(review.get_by_role('link', name='Kiểm tra kết quả đăng')).to_have_count(0)
+        expect(self.page.locator('tr[data-video-detail="/videos/fresh"]')).to_contain_text('Chưa đăng')
+        # A receipt saved in Results must replace the uncertain status on refresh.
+        self.store.resolve(task['id'], 'https://www.tiktok.com/@owner/video/67890')
+        self.page.clock.fast_forward(15100)
+        expect(self.page.locator('.publication-chips [data-state=published]')).to_have_count(2)
+        self.store.create_batch('fresh', str(Path(studio.OUTPUTS_DIR)/'ready.mp4'), 'Fresh', now, False, 'fresh-results', platforms=['tiktok'])
+        last = self.store.claim_next('worker', now=now)
+        self.store.mark_submitting(last['id'], 'worker'); self.store.finish(last['id'], 'worker', 'needs_review')
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/publishing/results')
+        expect(self.page.locator('.task .badge[data-state=needs_review]')).to_have_count(1)
+        expect(self.page.get_by_role('button', name='Bài đã đăng • lưu link', exact=True)).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Đã kiểm tra, thử lại', exact=True)).to_have_count(0)
+        self.store.resolve(last['id'], 'https://www.tiktok.com/@owner/video/56789')
+        self.page.clock.fast_forward(15100)
+        expect(self.page.locator('.task .badge[data-state=published]')).to_have_count(3)
+        self.assertEqual(self.errors, [])
+
     def test_library_shows_published_platform_and_its_receipt_link(self):
         from playwright.sync_api import expect
         import time
@@ -326,7 +572,58 @@ class PublishingUITests(unittest.TestCase):
         expect(link).to_contain_text('Facebook · Đã đăng')
         expect(link).to_have_attribute('href','https://www.facebook.com/reel/12345')
         expect(self.page.get_by_role('columnheader',name='Đã Đăng Ở Đâu')).to_be_visible()
+        expect(self.page.locator('.publication-chips [data-state]:not([data-state="published"])')).to_have_count(0)
+        expect(self.page.locator('[data-schedule-video="one"]')).to_be_disabled()
         self.assertEqual(self.errors,[])
+
+    def test_account_switch_changes_manual_schedule_targets_and_persists(self):
+        from playwright.sync_api import expect
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/publishing/accounts')
+        for platform in ('Instagram', 'Threads', 'YouTube'):
+            self.page.get_by_role('switch', name=f'Đăng lên {platform}', exact=True).uncheck()
+            expect(self.page.get_by_role('switch', name=f'Đăng lên {platform}', exact=True)).to_be_enabled()
+        self.page.reload()
+        expect(self.page.get_by_role('switch', name='Đăng lên Instagram', exact=True)).not_to_be_checked()
+        self.page.goto(f'http://127.0.0.1:{self.server.server_port}/publishing/new?video=one')
+        expect(self.page.locator('#scheduleDestinations')).to_contain_text('Facebook')
+        expect(self.page.locator('#scheduleDestinations')).to_contain_text('TikTok')
+        expect(self.page.locator('#scheduleDestinations')).not_to_contain_text('Instagram')
+        expect(self.page.locator('#youtubeAudience')).not_to_be_visible()
+        self.page.locator('#confirmPublish').check()
+        self.page.locator('#scheduleButton').click()
+        expect(self.page.locator('#notice')).to_contain_text('2 nền tảng')
+        batch = self.store.list_batches()[0]
+        self.assertEqual([t['platform'] for t in batch['tasks']], ['facebook', 'tiktok'])
+        self.assertEqual(self.errors, [])
+
+    def test_pending_request_can_recover_after_publication_and_destination_toggle(self):
+        from playwright.sync_api import expect
+        attempts = []
+        def intercept(route):
+            attempts.append(route.request.post_data_json)
+            response = route.fetch()
+            if len(attempts) == 1:
+                batch = self.store.list_batches()[0]
+                with self.store.transaction() as db:
+                    db.execute("UPDATE tasks SET state='published',url='https://www.facebook.com/reel/12345' WHERE batch_id=? AND platform='facebook'", (batch['id'],))
+                self.store.set_publishing_enabled('instagram', False)
+                route.abort()
+            else:
+                route.fulfill(response=response)
+        self.page.route('**/api/social/batches', intercept)
+        self.page.locator('#youtubeAudience').select_option('no')
+        self.page.locator('#confirmPublish').check()
+        self.page.locator('#scheduleButton').click()
+        expect(self.page.locator('#notice')).to_have_attribute('data-error', 'true')
+        self.page.locator('#refreshStatus').click()
+        expect(self.page.locator('#videoSelect')).to_have_value('one')
+        expect(self.page.locator('#confirmPublish')).to_be_checked()
+        expect(self.page.locator('#scheduleButton')).to_be_enabled()
+        self.page.locator('#scheduleButton').click()
+        expect(self.page.locator('#notice')).to_contain_text('Đã lưu lịch')
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0], attempts[1])
+        self.assertEqual(len(self.store.list_batches()), 1)
 
     def test_caption_later_batch_network_error_keeps_earlier_drafts(self):
         from playwright.sync_api import expect
@@ -474,7 +771,7 @@ class PublishingUITests(unittest.TestCase):
         self.page.locator('#captionSelectAll').check()
         self.page.locator('#rewriteCaptions').click()
         expect(self.page.locator('#captionBatchFeedback')).to_contain_text('Đã viết lại 1/1')
-        self.assertEqual(database.get_video('one')['caption'],'New message\n\n#MyBrand #MyTopic')
+        self.assertEqual(database.get_video('one')['caption'],'New message\n#MyBrand #MyTopic')
         self.page.locator('.caption-options-row summary').click()
         self.page.locator('#captionHashtags').fill('')
         self.page.locator('#captionRewriteMode').select_option('all')
@@ -701,7 +998,7 @@ class PublishingUITests(unittest.TestCase):
         self.page.on('request', lambda req: requests.append(req.url))
         self.page.goto(f'http://127.0.0.1:{self.server.server_port}/create')
         expect(self.page.locator('#inputUrl')).to_be_visible()
-        expect(self.page.locator('#animationSettingsForm')).to_have_count(0)
+        expect(self.page.locator('#animationModel')).to_have_count(0)
         self.assertFalse(any('/api/animation/' in url for url in requests))
 
 

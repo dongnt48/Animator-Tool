@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import urllib.request
 import urllib.parse
@@ -123,7 +124,7 @@ def _download_single_video(url):
     # 2. Fallback to yt-dlp
     try:
         cmd = [
-            "python", "-m", "yt_dlp",
+            sys.executable, "-m", "yt_dlp",
             "-o", out_path,
             "--no-playlist",
             url
@@ -150,7 +151,7 @@ def _download_single_video(url):
         discard_download({'video_filename': out_filename, 'thumbnail': '/static/thumbnails/'+thumb_filename})
         raise e
 
-def download_channel_videos(channel_url, limit=5):
+def download_channel_videos(channel_url, limit=5, *, progress=None):
     is_all = not limit or limit <= 0
     print(f"[Downloader] Scanning channel: {channel_url} (limit: {'all' if is_all else limit})")
     # Clean channel username
@@ -164,7 +165,7 @@ def download_channel_videos(channel_url, limit=5):
     # 1. Primary: Use yt-dlp with curl_cffi to get clean video IDs
     try:
         cmd = [
-            "python", "-m", "yt_dlp",
+            sys.executable, "-m", "yt_dlp",
             "--flat-playlist",
             "--print", "%(id)s"
         ]
@@ -172,7 +173,7 @@ def download_channel_videos(channel_url, limit=5):
             cmd.extend(["--playlist-end", str(limit)])
         cmd.append(f"https://www.tiktok.com/@{username}")
 
-        out = subprocess.check_output(cmd, text=True)
+        out = subprocess.check_output(cmd, text=True, timeout=60, stderr=subprocess.PIPE)
         lines = [line.strip() for line in out.splitlines() if line.strip()]
         video_ids = list(dict.fromkeys(lines if is_all else lines[:limit]))
         print(f"[Downloader] Found {len(video_ids)} video IDs for @{username}:", video_ids)
@@ -217,4 +218,19 @@ def download_channel_videos(channel_url, limit=5):
     except Exception as e:
         print("[Downloader] TikWM channel API failed:", e)
 
+    if results or results.skipped_duplicates:
+        return results
+
+    # 3. Visible Chrome: the user handles verification; only collect normal links.
+    from services.channel_browser import scan_channel_urls
+    urls = scan_channel_urls(username, limit, progress=progress)
+    for vid_url in urls:
+        if progress:
+            progress(f'Đang tải video {len(results) + results.skipped_duplicates + 1}/{len(urls)} sau khi quét kênh trong Chrome...')
+        try:
+            results.append((vid_url, download_single_video(vid_url)))
+        except database.DuplicateVideo:
+            results.skipped_duplicates += 1
+        except Exception as error:
+            print(f'[Downloader] Error downloading {vid_url}:', error)
     return results

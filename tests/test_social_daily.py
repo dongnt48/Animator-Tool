@@ -42,6 +42,22 @@ class DailyTests(unittest.TestCase):
         tomorrow = self.scheduler.tick(now=instant('2026-11-05T08:00:02+07:00'))
         self.assertEqual(tomorrow['video_id'], 'video-2')
 
+    def test_daily_requires_an_enabled_connected_account_and_only_targets_enabled_platforms(self):
+        self.store.set_publishing_enabled('facebook', False)
+        self.assertIsNone(self.scheduler.tick(now=instant('2026-11-04T08:00:02+07:00')))
+        self.assertEqual(self.store.daily_runs()[0]['state'], 'blocked')
+        self.assertNotIn('video-0', self.store.used_video_ids())
+        self.store.set_publishing_enabled('facebook', True)
+        self.store.set_publishing_enabled('instagram', False)
+        batch = self.scheduler.tick(now=instant('2026-11-04T12:00:02+07:00'))
+        self.assertEqual(batch['video_id'], 'video-0')
+        self.assertNotIn('instagram', [t['platform'] for t in batch['tasks']])
+
+    def test_youtube_disabled_does_not_require_audience(self):
+        self.store.set_publishing_enabled('youtube', False)
+        config = self.store.save_daily({**self.config, 'made_for_kids': None})
+        self.assertFalse(config['made_for_kids'])
+
     def test_concurrent_ticks_create_only_one_batch(self):
         now = instant('2026-11-04T08:00:02+07:00')
         with ThreadPoolExecutor(max_workers=2) as pool:

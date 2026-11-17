@@ -47,7 +47,7 @@ class Worker:
                     cover_path = Path(task['cover'][shape+'_path']).resolve(strict=True)
                     if cover_path.parent != self.store.path.parent/'media' or media_hash(cover_path) != task['cover'][shape+'_hash']:
                         raise ValueError('Ảnh bìa đã thay đổi sau khi lên lịch. Tạo lịch mới để xác nhận ảnh.')
-            receipt = self.publisher(task, lambda: self.store.mark_submitting(task['id'], self.owner))
+            receipt = self.publisher(task, lambda: self.store.mark_submitting(task['id'], self.owner, actor_identity=task.get('actor_identity', '')))
             if not valid_permalink(task['platform'], receipt.url):
                 raise ValueError('Chưa có link bài hợp lệ từ nền tảng.')
             self.store.finish(task['id'], self.owner, 'published', receipt.message, receipt.url)
@@ -102,15 +102,27 @@ def main():
             worker = Worker(store)
             logging.info('Social publishing worker ready. Keep this computer awake and online.')
             stop = threading.Event()
+            def keep_worker_online():
+                while not stop.wait(5):
+                    try:
+                        store.heartbeat()
+                    except Exception:
+                        logging.exception('Worker heartbeat failed during background verification')
+            pulse = threading.Thread(target=keep_worker_online, daemon=True)
+            pulse.start()
             daily = threading.Thread(target=DailyScheduler(store).run, args=(stop,), daemon=True)
             daily.start()
             try:
                 while True:
-                    worker.run_once()
+                    if not worker.run_once():
+                        from .verification import reconcile_pending
+                        for platform in ('tiktok', 'facebook'):
+                            reconcile_pending(store, root, platform=platform)
                     time.sleep(2)
             finally:
                 stop.set()
                 daily.join(timeout=5)
+                pulse.join(timeout=5)
     except KeyboardInterrupt:
         return
 

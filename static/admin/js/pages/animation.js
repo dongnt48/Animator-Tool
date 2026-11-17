@@ -68,8 +68,19 @@ async function refreshVideos() {
     }
     select.disabled = submitting || !videos.length;
     updateInfo();
+    syncAnimationPolling();
   } catch (error) { message.textContent = error.message; }
   finally { polling = false; }
+}
+let pollTimer = null;
+function syncAnimationPolling() {
+  const active = Boolean(acceptedVideoId) || videos.some(v => v.status === 'processing');
+  if (active && !pollTimer) {
+    pollTimer = setInterval(() => { if (!document.hidden && !submitting) refreshVideos(); }, 2500);
+  } else if (!active && pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 document.getElementById('animationRenderForm').addEventListener('submit', async event => {
   event.preventDefault();
@@ -86,10 +97,10 @@ document.getElementById('animationRenderForm').addEventListener('submit', async 
     video.log = 'Đã nhận yêu cầu, đang chuẩn bị dựng…';
     message.textContent = result.message;
     message.dataset.state = 'processing';
+    syncAnimationPolling();
     await refreshVideos();
   } catch (error) { message.textContent = error.message; message.dataset.state = 'error'; }
   finally { submitting = false; select.disabled = !videos.length; updateInfo(); }
 });
 startPolling(() => {});
 refreshVideos();
-setInterval(() => { if (!document.hidden && !submitting) refreshVideos(); }, 2500);

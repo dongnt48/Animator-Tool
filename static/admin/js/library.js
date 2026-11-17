@@ -15,13 +15,85 @@
       }, 3500);
     }
 
+    let videoPollTimer = null;
+    let videoPollPeriod = 0;
+    let videoPollGraceUntil = 0;
+    let latestLibraryVideos = [];
+    let latestBatchRunning = false;
+
+    function refreshLibraryView() {
+      renderTable(latestLibraryVideos, latestBatchRunning);
+      window.dispatchEvent(new CustomEvent('library:updated', {detail:latestLibraryVideos}));
+    }
+
+    function syncVideoPolling(videos = [], isBatchRendering = false) {
+      const hasActiveWork = Date.now() < videoPollGraceUntil || Boolean(isBatchRendering) || videos.some(v => v.status === "processing" || Object.values(v.publication || {}).some(info => ['queued','running','submitting'].includes(info.state)));
+      const awaitingVerification = document.getElementById('videoTableBody') && videos.some(v => Object.values(v.publication || {}).some(info => info.state === 'needs_review'));
+      const period = hasActiveWork ? 2500 : awaitingVerification ? 15000 : 0;
+      if (period !== videoPollPeriod && videoPollTimer) {
+        clearInterval(videoPollTimer);
+        videoPollTimer = null;
+      }
+      videoPollPeriod = period;
+      if (period && !videoPollTimer) {
+        videoPollTimer = setInterval(() => {
+          if (!document.hidden) fetchVideos();
+        }, period);
+      } else if (!period && videoPollTimer) {
+        clearInterval(videoPollTimer);
+        videoPollTimer = null;
+      }
+    }
+
+    function startActionPolling() {
+      videoPollGraceUntil = Date.now() + 8000;
+      syncVideoPolling([], false);
+    }
+
     // Load initial data
     window.addEventListener("DOMContentLoaded", () => {
       fetchVideos();
-      // Auto-refresh every 2.5s for live status updates
-      setInterval(fetchVideos, 2500);
+      document.getElementById('refreshStatus')?.addEventListener('click', fetchVideos);
+      window.addEventListener('focus', () => { if (document.getElementById('videoTableBody')) fetchVideos(); });
+
+      const limitSelect = document.getElementById("inputLimit");
+      const customInput = document.getElementById("inputLimitCustom");
+      if (limitSelect && customInput) {
+        const syncCustomLimit = () => {
+          if (limitSelect.value === "custom") {
+            customInput.classList.remove("hidden");
+            if (!customInput.value) customInput.value = "10";
+            customInput.focus();
+            customInput.select();
+          } else {
+            customInput.classList.add("hidden");
+          }
+        };
+        limitSelect.addEventListener("change", syncCustomLimit);
+        customInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            handleDownloadAndRender();
+          }
+        });
+        syncCustomLimit();
+      }
+
       const body = document.getElementById('videoTableBody');
       if (body) {
+      body.addEventListener('click', async event => {
+        const button = event.target.closest('.library-title-link[data-caption-copy]');
+        if (!button) return;
+        const video = latestLibraryVideos.find(item => item.id === button.dataset.captionCopy);
+        const caption = video?.caption || video?.title || '';
+        if (!caption.trim()) return;
+        try {
+          await navigator.clipboard.writeText(caption);
+          showToast('Đã copy caption', 'success');
+        } catch {
+          showToast('Không copy được caption. Hãy cho phép truy cập clipboard rồi thử lại.', 'error');
+        }
+      });
       body.addEventListener('click',event => {
         if (event.target.closest('a,button,input,select,textarea,label') || window.getSelection()?.toString()) return;
         const row = event.target.closest('[data-video-detail]');
@@ -53,10 +125,12 @@
         const data = await res.json();
         if (!res.ok || data.status !== 'success') throw new Error(data.message || 'Không tải được trạng thái video.');
         if (data.status === "success") {
-          renderTable(data.videos, data.is_batch_rendering);
+          latestLibraryVideos = data.videos;
+          latestBatchRunning = data.is_batch_rendering;
+          refreshLibraryView();
           updateStats(data.videos);
           renderCreationActivity(data.videos);
-          window.dispatchEvent(new CustomEvent('library:updated',{detail:data.videos}));
+          syncVideoPolling(data.videos, data.is_batch_rendering);
         }
       } catch (err) {
         console.error("Fetch videos failed:", err);
@@ -148,9 +222,9 @@
 
     function publicationHtml(video) {
       const platforms = {facebook:'Facebook',instagram:'Instagram',threads:'Threads',tiktok:'TikTok',youtube:'YouTube'};
-      const labels = {published:'Đã đăng',queued:'Chờ đăng',running:'Đang tải',submitting:'Đang xuất bản',failed:'Lỗi',needs_login:'Cần đăng nhập',needs_review:'Cần kiểm tra',cancelled:'Đã hủy'};
-      const entries = Object.entries(video.publication || {});
-      if (!entries.length) return '<span class="text-xs text-cozy-slate/60">Chưa có lịch đăng</span>';
+      const labels = {published:'Đã đăng',needs_review:'Chưa xác định'};
+      const entries = Object.entries(video.publication || {}).filter(([platform,info]) => Object.hasOwn(platforms,platform) && Object.hasOwn(labels, info.state));
+      if (!entries.length) return '<span class="text-xs text-cozy-slate/60">Chưa đăng</span>';
       return '<div class="publication-chips">' + entries.filter(([platform]) => Object.hasOwn(platforms,platform)).map(([platform,info]) => {
         const state = Object.hasOwn(labels,info.state) ? info.state : 'queued';
         const text = `${platforms[platform]} · ${labels[state]}`;
@@ -218,6 +292,8 @@
         const currentRatio = ["9:16", "16:9", "1:1", "4:3", "4:5", "16:10", "10:16"].includes(v.aspect_ratio) ? v.aspect_ratio : "9:16";
         const currentStyle = Object.hasOwn(STYLE_MAP, v.style) ? v.style : "cozy";
         const currentCharacter = Object.hasOwn(CHARACTER_MAP, v.character) ? v.character : "stickman";
+        const [ratioWidth, ratioHeight] = currentRatio.split(':').map(Number);
+        const coverShape = ratioWidth > ratioHeight ? 'landscape' : 'portrait';
 
         // Aspect Ratio Column: Selectable anytime!
         const ratioHtml = `
@@ -319,7 +395,7 @@
 
         if (v.status === "completed" && v.output_filename) {
           actionsHtml += `
-            <button type="button" data-schedule-video="${escapeHtml(v.id)}" class="px-3 py-2 rounded-xl bg-cozy-sage/20 text-cozy-dark text-xs font-bold">Lên lịch đăng</button>
+            <button type="button" data-schedule-video="${escapeHtml(v.id)}" ${Object.values(v.publication || {}).some(info => info.state === 'published') ? 'disabled title="Record đã đăng; không tạo lượt mới"' : ''} class="px-3 py-2 rounded-xl bg-cozy-sage/20 text-cozy-dark text-xs font-bold">${Object.values(v.publication || {}).some(info => info.state === 'published') ? 'Đã đăng' : 'Lên lịch đăng'}</button>
 
             <!-- Nút dựng lại video bất cứ lúc nào -->
             <button
@@ -366,7 +442,7 @@
 
         return `
           <tr class="hover:bg-white/60 transition group library-record" data-video-detail="/videos/${encodeURIComponent(v.id)}" tabindex="0" aria-label="Xem chi tiết video ${escapeHtml(String(v.stt ?? v.id))}">
-            <td class="py-4 px-3 text-center"><input type="checkbox" data-caption-video="${escapeHtml(v.id)}" aria-label="Chọn video ${escapeHtml(String(v.stt ?? v.id))} để viết caption"></td>
+            <td class="record-selection-cell"><label class="record-selection-target"><input type="checkbox" data-caption-video="${escapeHtml(v.id)}" aria-label="Chọn record ${escapeHtml(String(v.stt ?? v.id))}"></label></td>
             <!-- STT -->
             <td class="py-4 px-3 text-center font-extrabold text-cozy-slate">
               #${v.stt}
@@ -375,24 +451,19 @@
             <!-- Title & Info -->
             <td class="py-4 px-4 library-title-cell">
               <div class="font-bold text-sm text-cozy-dark leading-snug break-words" title="${escapeHtml(v.caption || v.title)}">
-                <a class="library-title-link" href="/videos/${encodeURIComponent(v.id)}" title="${escapeHtml(v.caption || v.title)}">${escapeHtml(v.caption || v.title)}</a>
+                <button type="button" class="library-title-link" data-caption-copy="${escapeHtml(v.id)}" title="${escapeHtml(v.caption || v.title)}">${escapeHtml(v.caption || v.title)}</button>
               </div>
               ${v.caption_ai_saved_at || v.caption ? `<span class="badge caption-rewrite-mark" title="Caption đã lưu">Đã viết lại</span>` : ''}
               <div class="text-xs text-cozy-slate/60 mt-1 flex flex-wrap items-center gap-3">
-                <a href="${v.tiktok_url}" target="_blank" class="hover:text-cozy-terracotta hover:underline flex items-center gap-1">
-                  <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                  <span>Xem trên TikTok</span>
-                </a>
-                <span>•</span>
                 <span>Ngày tạo: ${v.created_at || 'Mới'}</span>
               </div>
             </td>
 
             <td class="py-4 px-3 text-center">${mediaThumbnail(v,'original',currentRatio,currentStyle,currentCharacter)}</td>
-            <td class="py-4 px-3 text-center">${mediaThumbnail(v,'output',currentRatio,currentStyle,currentCharacter)}</td>
+            <td class="py-4 px-3 text-center">${mediaThumbnail(v,'output',currentRatio,currentStyle,currentCharacter)}${v.output_filename ? `<a class="library-download-link" href="/video/output/${encodeURIComponent(v.output_filename)}" download="${escapeHtml(v.output_filename)}">Tải video thành phẩm</a>` : ''}</td>
             <td class="py-4 px-3 text-center">${v.cover?.portrait_filename
               ? `<a class="library-media-thumb library-cover-thumb" href="/videos/${encodeURIComponent(v.id)}#coverForm" aria-label="Xem ảnh bìa"><img src="/api/covers/videos/${encodeURIComponent(v.id)}/image/portrait?v=${encodeURIComponent(v.cover.revision || '')}" alt="Ảnh bìa đăng bài" loading="lazy" width="64" height="80"></a>`
-              : `<span class="library-media-empty">${v.status === 'processing' ? 'Đang tạo…' : 'Chưa có bìa'}</span>`}</td>
+              : `<span class="library-media-empty">${v.status === 'processing' ? 'Đang tạo…' : 'Chưa có bìa'}</span>`}${v.cover?.[coverShape + '_filename'] ? `<a class="library-download-link" href="/api/covers/videos/${encodeURIComponent(v.id)}/image/${coverShape}?v=${encodeURIComponent(v.cover.revision || '')}" download="bia-${escapeHtml(v.id)}-${coverShape}.jpg">Tải ảnh bìa</a>` : ''}</td>
             <!-- Chuẩn Màn Hình -->
             <td class="py-4 px-3 text-center">
               ${ratioHtml}
@@ -472,14 +543,30 @@
       }
     }
 
+    function getSelectedLimit() {
+      const limitInput = document.getElementById("inputLimit");
+      if (!limitInput) return 5;
+      if (limitInput.value === "custom") {
+        const customInput = document.getElementById("inputLimitCustom");
+        const val = parseInt(customInput?.value, 10);
+        if (!val || val < 1) {
+          alert("Vui lòng nhập số lượng video hợp lệ (tối thiểu 1)!");
+          customInput?.focus();
+          return null;
+        }
+        return val;
+      }
+      return limitInput.value === "all" ? "all" : (parseInt(limitInput.value, 10) || 5);
+    }
+
     async function handleDownloadAndRender() {
       const urlInput = document.getElementById("inputUrl");
-      const limitInput = document.getElementById("inputLimit");
       const ratioInput = document.getElementById("globalAspectRatio");
       const styleInput = document.getElementById("globalStyle");
       const charInput = document.getElementById("globalCharacter");
       const url = urlInput.value.trim();
-      const limit = limitInput.value === "all" ? "all" : (parseInt(limitInput.value) || 5);
+      const limit = getSelectedLimit();
+      if (limit === null) return;
       const aspect_ratio = ratioInput.value || "9:16";
       const style = styleInput ? styleInput.value : "cozy";
       const character = charInput ? charInput.value : "stickman";
@@ -492,10 +579,9 @@
 
       if (!url.includes('/video/') && !url.includes('vt.tiktok.com') && !url.includes('vm.tiktok.com')) {
         const proceed = confirm(
-          "⚠️ LƯU Ý VỀ TIKTOK:\n\n" +
-          "TikTok hiện đang bật hệ thống chống bot (Slardar WAF) chặn cào tự động trang cá nhân kênh.\n\n" +
-          "👉 Để tải & dựng 100% thành công, bạn nên dán LINK VIDEO CỤ THỂ (dạng https://www.tiktok.com/@.../video/... hoặc link rút gọn vt.tiktok.com).\n\n" +
-          "Bạn có muốn tiếp tục thử tải với đường dẫn này không?"
+          "Quét video từ kênh TikTok.\n\n" +
+          "Nếu cần xác minh, app sẽ mở Chrome. Hoàn thành CAPTCHA thủ công và giữ cửa sổ mở; app sẽ tiếp tục tải và dựng khi có danh sách video.\n\n" +
+          "App chờ tối đa 10 phút trong Chrome. Tiếp tục?"
         );
         if (!proceed) {
           urlInput.focus();
@@ -509,6 +595,7 @@
       btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Đang xử lý...</span>`;
 
       try {
+        await window.saveAnimationSettings?.();
         const res = await fetch("/api/download-and-render", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -518,6 +605,7 @@
         if (data.status === "success") {
           urlInput.value = "";
           showToast("Đã đưa vào hàng chờ dựng video!", "success");
+          startActionPolling();
           fetchVideos();
         } else {
           alert("Lỗi: " + data.message);
@@ -532,12 +620,12 @@
 
     async function handleDownload() {
       const urlInput = document.getElementById("inputUrl");
-      const limitInput = document.getElementById("inputLimit");
       const ratioInput = document.getElementById("globalAspectRatio");
       const styleInput = document.getElementById("globalStyle");
       const charInput = document.getElementById("globalCharacter");
       const url = urlInput.value.trim();
-      const limit = limitInput.value === "all" ? "all" : (parseInt(limitInput.value) || 5);
+      const limit = getSelectedLimit();
+      if (limit === null) return;
       const aspect_ratio = ratioInput.value || "9:16";
       const style = styleInput ? styleInput.value : "cozy";
       const character = charInput ? charInput.value : "stickman";
@@ -550,10 +638,9 @@
 
       if (!url.includes('/video/') && !url.includes('vt.tiktok.com') && !url.includes('vm.tiktok.com')) {
         const proceed = confirm(
-          "⚠️ LƯU Ý VỀ TIKTOK:\n\n" +
-          "TikTok hiện đang bật hệ thống chống bot chặn quét trang cá nhân kênh.\n\n" +
-          "👉 Bạn nên dán LINK VIDEO CỤ THỂ (dạng https://www.tiktok.com/@.../video/... hoặc vt.tiktok.com) để tải ngay.\n\n" +
-          "Bạn có muốn tiếp tục thử tải không?"
+          "Quét video từ kênh TikTok.\n\n" +
+          "Nếu cần xác minh, app sẽ mở Chrome. Hoàn thành CAPTCHA thủ công và giữ cửa sổ mở; app sẽ tiếp tục tải khi có danh sách video.\n\n" +
+          "App chờ tối đa 10 phút trong Chrome. Tiếp tục?"
         );
         if (!proceed) {
           urlInput.focus();
@@ -576,6 +663,7 @@
         if (data.status === "success") {
           urlInput.value = "";
           showToast("Đã tải video về danh sách thành công!", "success");
+          startActionPolling();
           fetchVideos();
         } else {
           alert("Lỗi: " + data.message);
@@ -600,6 +688,7 @@
           });
           const data = await res.json();
           if (data.status === "success") {
+            startActionPolling();
             fetchVideos();
           } else {
             alert("Lỗi: " + data.message);
@@ -633,6 +722,7 @@
         }
 
         try {
+          await window.saveAnimationSettings?.();
           const res = await fetch("/api/render-all", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -645,6 +735,7 @@
             }
           } else if (data.status === "success") {
             showToast("⚡ Đã bắt đầu tiến trình dựng hàng loạt!", "success");
+            startActionPolling();
             fetchVideos();
           } else {
             alert(data.message);

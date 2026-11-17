@@ -84,6 +84,8 @@ class CaptionsTests(unittest.TestCase):
         media = self.root / 'video.mp4'
         media.write_bytes(b'fixture')
         batch = self.store.create_batch(self.video['id'],str(media),'Original #tag',1000,False,'publication-test')
+        # Legacy duplicate history may exist, but new batches are forbidden after success.
+        later=self.store.create_batch(self.video['id'],str(media),'later caption',2000,False,'later-attempt', platforms=['facebook'])
         owner=self.store.begin_login('facebook',now=1)
         self.store.complete_login('facebook',owner,'42',now=2)
         task=self.store.claim_next('worker',now=1000)
@@ -95,7 +97,6 @@ class CaptionsTests(unittest.TestCase):
         self.assertEqual(summary['facebook']['url'],'https://www.facebook.com/reel/12345')
         self.assertEqual(summary['instagram']['state'],'needs_login')
         self.assertEqual(self.store.publication_summary(['never'])['never'],{})
-        later=self.store.create_batch(self.video['id'],str(media),'later caption',2000,False,'later-attempt')
         with self.store.transaction() as db:
             db.execute("UPDATE tasks SET state='failed' WHERE batch_id=? AND platform='facebook'",(later['id'],))
         self.assertEqual(self.store.publication_summary([self.video['id']])[self.video['id']]['facebook']['state'],'published')

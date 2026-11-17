@@ -22,7 +22,7 @@ let batchesSignature = "";
       const published = batch.tasks.filter(task => task.state === 'published').length;
       const active = batch.tasks.some(task => ['running','submitting'].includes(task.state));
       const cancelled = batch.tasks.every(task => task.state === 'cancelled');
-      const status = badge(failures ? 'needs_review' : published === 5 ? 'published' : active ? 'running' : 'queued');
+      const status = badge(failures ? 'needs_review' : published === batch.tasks.length ? 'published' : active ? 'running' : 'queued');
       status.textContent = cancelled ? 'Đã hủy' : failures ? `${failures} cần xử lý` : `${published}/${batch.tasks.length} đã đăng`;
       if (cancelled) status.dataset.state = 'cancelled';
       heading.append(title, status);
@@ -39,7 +39,7 @@ let batchesSignature = "";
         const row = element('div', undefined, 'task');
         row.append(element('span', names[task.platform], 'task-name'), badge(task.state));
         const taskMessage = element('div', undefined, 'task-message');
-        taskMessage.append(element('span', task.message || (task.state === 'queued' ? 'Chờ đến giờ đăng.' : '')));
+        taskMessage.append(element('span', task.state === 'needs_review' ? 'Hệ thống chưa xác định được kết quả đăng. Không tự đăng lại để tránh trùng bài.' : task.message || (task.state === 'queued' ? 'Chờ đến giờ đăng.' : '')));
         row.append(taskMessage);
         const covers = {pending:'Bìa: chờ áp dụng', applied:'Bìa: đã thấy ảnh mới trong xem trước', frame:'Bìa: đã chọn khung video', automatic:'Bìa: dùng tự động', needs_review:'Bìa: cần kiểm tra', none:'Bìa: chưa cấu hình'};
         const coverStatus = element('span', covers[task.cover_state] || covers.none, 'cover-status');
@@ -49,19 +49,11 @@ let batchesSignature = "";
         if (task.url && safePostUrl(task.platform, task.url)) {
           const link = element('a','Mở bài đã đăng ↗'); link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; controls.append(link);
         }
-        if (['failed','needs_login','needs_review'].includes(task.state)) {
-          controls.append(action(task.state === 'needs_review' ? 'Đã kiểm tra, thử lại' : 'Thử lại nền tảng này', async () => {
-            const confirmed = task.state === 'needs_review';
-            const prompt = confirmed ? `Mở ${names[task.platform]} và kiểm tra: bài này CHƯA được đăng? Chỉ tiếp tục nếu chắc chắn chưa có bài, để tránh đăng trùng.` : `Đăng lại riêng lên ${names[task.platform]} ngay bây giờ?`;
+        if (['failed','needs_login'].includes(task.state)) {
+          controls.append(action('Thử lại nền tảng này', async () => {
+            const prompt = `Đăng lại riêng lên ${names[task.platform]} ngay bây giờ?`;
             if (!confirm(prompt)) return;
-            const result = await api(`/api/social/tasks/${task.id}/retry`, {confirmed_not_posted:confirmed}); notice(result.message);
-          }));
-        }
-        if (task.state === 'needs_review') {
-          controls.append(action('Bài đã đăng • lưu link', async () => {
-            const url = prompt(`Bạn đã thấy bài trên ${names[task.platform]}? Dán link bài đã đăng để xác nhận:`);
-            if (!url) return;
-            const result = await api(`/api/social/tasks/${task.id}/resolve`, {confirmed_published:true,url}); notice(result.message);
+            const result = await api(`/api/social/tasks/${task.id}/retry`, {}); notice(result.message);
           }));
         }
         row.append(controls); body.append(row);

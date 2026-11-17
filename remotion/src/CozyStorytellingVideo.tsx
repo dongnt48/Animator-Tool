@@ -42,6 +42,7 @@ export interface CozyStorytellingProps {
   audioSrc?: string;
   totalDurationInFrames?: number;
   channelTag?: string;
+  watermarkText?: string;
   aspectRatio?: string;
   style?: string; // "cozy" | "midnight" | "scrapbook" | "pixel" | "brutalism" | "whiteboard"
   character?: string; // "stickman" | "cat" | "hoodie" | "bear" | "bot" | "ghost"

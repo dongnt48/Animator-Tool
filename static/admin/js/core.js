@@ -1,6 +1,6 @@
 export const $ = id => document.getElementById(id);
 export const names = {facebook:'Facebook', instagram:'Instagram', threads:'Threads', tiktok:'TikTok', youtube:'YouTube'};
-const labels = {disconnected:'Chưa kết nối', connected:'Phiên đã lưu', connecting:'Đang đăng nhập', save_requested:'Đang lưu phiên', cancel_requested:'Đang đóng', queued:'Đã lên lịch', running:'Đang chuẩn bị / tải lên', submitting:'Đang xuất bản', published:'Đã đăng', failed:'Lỗi trước khi đăng', needs_login:'Cần đăng nhập', needs_review:'Cần kiểm tra bài', cancelled:'Đã hủy'};
+const labels = {disconnected:'Chưa kết nối', connected:'Phiên đã lưu', connecting:'Đang đăng nhập', save_requested:'Đang lưu phiên', cancel_requested:'Đang đóng', queued:'Đã lên lịch', running:'Đang chuẩn bị / tải lên', submitting:'Đang xuất bản', published:'Đã đăng', failed:'Lỗi trước khi đăng', needs_login:'Cần đăng nhập', needs_review:'Chưa xác định kết quả', cancelled:'Đã hủy'};
 export const element = (tag, text, className) => {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -28,7 +28,7 @@ export function action(text, handler, className='secondary') {
     button.type = 'button';
     button.addEventListener('click', async () => {
       button.disabled = true;
-      try { await handler(); await refresh(); }
+      try { await handler(); pollGraceUntil = Date.now() + 8000; await refresh(); }
       catch (error) { notice(error.message, true); }
       finally { if (button.isConnected) button.disabled = false; }
     });
@@ -37,6 +37,42 @@ export function action(text, handler, className='secondary') {
 
 let renderer = () => {};
 let refreshing = false;
+let pollTimer = null;
+let pollPeriod = 0;
+let pollGraceUntil = 0;
+
+function hasActiveSocialWork(data) {
+  if (Date.now() < pollGraceUntil) return true;
+  if (Array.isArray(data?.accounts) && data.accounts.some(a => ['connecting', 'save_requested', 'cancel_requested'].includes(a.state))) {
+    return true;
+  }
+  if (Array.isArray(data?.batches)) {
+    const now = Date.now() / 1000;
+    for (const batch of data.batches) {
+      for (const task of (batch.tasks || [])) {
+        if (['running', 'submitting'].includes(task.state)) return true;
+        if (task.state === 'queued' && batch.scheduled_for <= now + 5) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function syncSocialPolling(active, uncertain) {
+  const period = active ? 4000 : uncertain ? 15000 : 0;
+  if (period !== pollPeriod && pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  pollPeriod = period;
+  if (period && !pollTimer) {
+    pollTimer = setInterval(() => {if (!document.hidden) refresh();}, period);
+  } else if (!period && pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
 export async function refresh() {
   if (refreshing) return;
   refreshing = true;
@@ -47,6 +83,7 @@ export async function refresh() {
     $('workerStatus').dataset.state = data.worker_online ? 'online' : 'needs_login';
     $('startWorker').hidden = data.worker_online;
     renderer(data);
+    syncSocialPolling(hasActiveSocialWork(data), data.batches?.some(batch => batch.tasks?.some(task => task.state === 'needs_review')));
   } catch (error) { notice(error.message, true); }
   finally { refreshing = false; }
 }
@@ -55,10 +92,9 @@ export function startPolling(render) {
   $('refreshStatus').addEventListener('click', refresh);
   $('startWorker').addEventListener('click', async () => {
     $('startWorker').disabled = true;
-    try { const result = await api('/api/social/worker/start', {}); notice(result.message); }
+    try { const result = await api('/api/social/worker/start', {}); pollGraceUntil = Date.now() + 8000; notice(result.message); }
     catch (error) { notice(error.message, true); }
     finally { $('startWorker').disabled = false; await refresh(); }
   });
   refresh();
-  setInterval(() => {if (!document.hidden) refresh();}, 4000);
 }

@@ -8,6 +8,18 @@
 <div class="library-page">
   <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col gap-3 pointer-events-none"></div>
   {% include 'admin/partials/video-create-controls.html' %}
+  <section class="panel" aria-label="Tên kênh trên video">
+    <form id="animationSettingsForm">
+      <div class="animation-settings-row">
+        <label>Tên kênh trên video
+          <input id="animationChannelName" name="channel_name" maxlength="80" placeholder="Ví dụ: @tenkenhcuaban" disabled>
+        </label>
+        <button type="submit" id="saveAnimationSettings" class="btn" disabled>Lưu cấu hình</button>
+      </div>
+      <p class="hint">Watermark mờ ở giữa xuyên suốt video. Tự lưu khi bấm Tải &amp; Dựng Ngay hoặc Dựng Toàn Bộ; để trống để tắt.</p>
+      <p id="animationSettingsMessage" class="hint" role="status" aria-live="polite"></p>
+    </form>
+  </section>
   {% include 'admin/partials/video-stats.html' %}
   <section class="panel">
     <div class="section-heading"><div><h2>Tiến trình xử lý</h2><p id="creationActivitySummary" class="hint" role="status">Đang tải tiến trình…</p></div><a href="/">Mở thư viện →</a></div>
